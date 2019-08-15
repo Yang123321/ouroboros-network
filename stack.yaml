@@ -37,16 +37,10 @@ extra-deps:
       - cardano-crypto-class
       - slotting
 
-  - git: https://github.com/input-output-hk/cardano-ledger-specs
-    commit: 203ec5b7ac22f8d44fc2d6a44ea1233962c2c0e6
-    subdirs:
-      - byron/semantics/executable-spec
-      - byron/ledger/executable-spec
-      - byron/chain/executable-spec
-
   # Needed for `cardano-ledger-specs`
   - git: https://github.com/input-output-hk/goblins
     commit: 26d35ad52fe9ade3391532dbfeb2f416f07650bc
+
   - moo-1.2
   - gray-code-0.3.1
 
@@ -57,6 +51,15 @@ extra-deps:
       - cardano-ledger/test
       - crypto
       - crypto/test
+
+  - git: https://github.com/input-output-hk/cardano-ledger-specs
+    commit: 26d3a60a5d1e13d39e76ddfdd17c4beed6f253ea
+    subdirs:
+      - byron/chain/executable-spec
+      - byron/ledger/executable-spec
+      - byron/semantics/executable-spec
+      - shelley/chain-and-ledger/dependencies/non-integer
+      - shelley/chain-and-ledger/executable-spec
 
   - git: https://github.com/input-output-hk/cardano-prelude
     commit: 00487726c4bc21b4744e59d913334ebfeac7d68e
