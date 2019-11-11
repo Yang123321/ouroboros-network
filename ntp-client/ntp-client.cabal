@@ -22,7 +22,7 @@ Library
                       , formatting
                       , network
                       , stm
-                      , these
+                      , these >= 0.8
                       , time
                       , time-units
 

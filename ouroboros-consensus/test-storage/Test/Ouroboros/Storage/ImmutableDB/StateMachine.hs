@@ -55,7 +55,8 @@ import           System.Random (getStdRandom, randomR)
 import           Test.QuickCheck
 import qualified Test.QuickCheck.Monadic as QC
 import           Test.QuickCheck.Random (mkQCGen)
-import           Test.StateMachine
+import           Test.StateMachine hiding (showLabelledExamples,
+                     showLabelledExamples')
 import qualified Test.StateMachine.Sequential as QSM
 import qualified Test.StateMachine.Types as QSM
 import qualified Test.StateMachine.Types.Rank2 as Rank2
@@ -673,13 +674,13 @@ mock model cmdErr = At <$> traverse (const genSym) resp
 
 precondition :: Model m Symbolic -> At CmdErr m Symbolic -> Logic
 precondition Model {..} (At (CmdErr { _cmd = cmd })) =
-   forall (iters cmd) (`elem` RE.keys knownIters) .&&
+   forall (iters cmd) (`member` RE.keys knownIters) .&&
     case cmd of
       AppendBlock    _ _ b -> fitsOnTip b
       AppendEBB      _ _ b -> fitsOnTip b
-      DeleteAfter tip      -> tip `elem` NE.toList (tips dbModel)
+      DeleteAfter tip      -> tip `member` NE.toList (tips dbModel)
       Corruption corr ->
-        forall (corruptionFiles corr) (`elem` getDBFiles dbModel)
+        forall (corruptionFiles corr) (`member` getDBFiles dbModel)
       _ -> Top
   where
     corruptionFiles (MkCorruption corrs) = map snd $ NE.toList corrs
@@ -794,7 +795,7 @@ sm errorsVar hasFS db internal dbm mdb minternal = StateMachine
   , semantics     = semantics errorsVar hasFS db internal
   , mock          = mock
   , invariant     = Nothing
-  , distribution  = Nothing
+  , cleanup       = noCleanup
   }
 
 {-------------------------------------------------------------------------------

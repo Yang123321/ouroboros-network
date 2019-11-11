@@ -40,8 +40,8 @@ import           System.Random (getStdRandom, randomR)
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
 import           Test.QuickCheck.Random (mkQCGen)
-import           Test.StateMachine
-import           Test.StateMachine.Sequential
+import           Test.StateMachine hiding (showLabelledExamples, showLabelledExamples')
+import qualified Test.StateMachine.Sequential as Sequential
 import           Test.StateMachine.Types
 import qualified Test.StateMachine.Types.Rank2 as Rank2
 import           Test.Tasty (TestTree, testGroup)
@@ -297,7 +297,7 @@ sm terminatingCmd errorsVar db env dbm = StateMachine {
     , semantics     = semanticsImpl errorsVar db env
     , mock          = mockImpl
     , invariant     = Nothing
-    , distribution  = Nothing
+    , cleanup       = noCleanup
     }
 
 stateMachine :: IOLike m
@@ -326,20 +326,20 @@ preconditionImpl Model{..} (At (CmdErr cmd err)) =
       GetBlock bid        ->
         Boolean $ afterGC $ guessSlot bid
       GetPredecessor bids ->
-        forall bids (`elem` bidsInModel)
+        forall bids (`member` bidsInModel)
       PutBlock bid _pbid  ->
         Boolean $ afterGC $ guessSlot bid
       AskIfMember bids    -> Boolean $ and
         (afterGC . guessSlot <$> bids)
       Corrupt cors        ->
         isOpen
-        .&& forall (corruptionFiles cors) (`elem` getDBFiles dbModel)
+        .&& forall (corruptionFiles cors) (`member` getDBFiles dbModel)
       CreateFile          -> isOpen
       CreateInvalidFile   -> isOpen
       DuplicateBlock file bid _ ->
         case fmap fst . snd <$> M.lookup file (index dbModel) of
           Nothing   -> Bot
-          Just bids -> isOpen .&& bid `elem` bids
+          Just bids -> isOpen .&& bid `member` bids
       _                   -> Top
   where
     -- | Checks if the given block is bigger then the biggest gced slot.
@@ -819,8 +819,8 @@ showLabelledExamples' mReplay numTests = do
     labelledExamplesWith (stdArgs { replay     = Just (mkQCGen replaySeed, 0)
                                   , maxSuccess = numTests
                                   }) $
-        forAllShrinkShow (generateCommands smUnused Nothing)
-                         (shrinkCommands   smUnused)
+        forAllShrinkShow (Sequential.generateCommands smUnused Nothing)
+                         (Sequential.shrinkCommands   smUnused)
                          ppShow $ \cmds ->
             collects (tag . execCmds (initModel smUnused) $ cmds) $
                 property True

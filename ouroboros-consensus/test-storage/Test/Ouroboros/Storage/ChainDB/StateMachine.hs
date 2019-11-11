@@ -773,8 +773,8 @@ mock model cmd = At <$> bitraverse (const genSym) (const genSym) resp
 precondition :: forall m blk. TestConstraints blk
              => Model blk m Symbolic -> At Cmd blk m Symbolic -> Logic
 precondition Model {..} (At cmd) =
-   forall (iters cmd) (`elem` RE.keys knownIters)   .&&
-   forall (rdrs  cmd) (`elem` RE.keys knownReaders) .&&
+   forall (iters cmd) (`member` RE.keys knownIters)   .&&
+   forall (rdrs  cmd) (`member` RE.keys knownReaders) .&&
    case cmd of
      -- Even though we ensure this in the generator, shrinking might change
      -- it.
@@ -897,7 +897,7 @@ sm db internal registry varCurSlot genBlock env initLedger = StateMachine
   , semantics     = semantics db internal registry varCurSlot
   , mock          = mock
   , invariant     = Nothing
-  , distribution  = Nothing
+  , cleanup       = noCleanup
   }
 
 {-------------------------------------------------------------------------------

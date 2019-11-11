@@ -9,12 +9,13 @@
         "generic-monoid" = (((hackage.generic-monoid)."0.1.0.0").revisions).default;
         "graphviz" = (((hackage.graphviz)."2999.20.0.3").revisions).default;
         "hedgehog-quickcheck" = (((hackage.hedgehog-quickcheck)."0.1.1").revisions).default;
-        "quickcheck-state-machine" = (((hackage.quickcheck-state-machine)."0.6.0").revisions).default;
         "splitmix" = (((hackage.splitmix)."0.0.2").revisions).default;
         "time-units" = (((hackage.time-units)."1.0.0").revisions).default;
         "tasty-hedgehog" = (((hackage.tasty-hedgehog)."1.0.0.1").revisions).default;
         "Unique" = (((hackage.Unique)."0.4.7.6").revisions).default;
         "statistics-linreg" = (((hackage.statistics-linreg)."0.3").revisions).default;
+        "these" = (((hackage.these)."0.8").revisions).default;
+        "assoc" = (((hackage.assoc)."1").revisions).default;
         "Win32" = (((hackage.Win32)."2.6.2.0").revisions).default;
         "base58-bytestring" = (((hackage.base58-bytestring)."0.1.0").revisions).default;
         "hedgehog" = (((hackage.hedgehog)."1.0").revisions).default;
@@ -22,6 +23,8 @@
         "streaming-binary" = (((hackage.streaming-binary)."0.3.0.1").revisions).default;
         "cborg" = (((hackage.cborg)."0.2.2.0").revisions).default;
         "canonical-json" = (((hackage.canonical-json)."0.6.0.0").revisions).default;
+        "QuickCheck" = (((hackage.QuickCheck)."2.13.2").revisions)."ad4e5adbd1c9dc0221a44307b992cb040c515f31095182e47aa7e974bc461df1";
+        "markov-chain-usage-model" = (((hackage.markov-chain-usage-model)."0.0.0").revisions)."1afa95faeb9213c4d960a669190078b41b89169462b8edd910472980671ba8c0";
         } // {
         typed-transitions = ./typed-transitions.nix;
         typed-protocols = ./typed-protocols.nix;
@@ -48,6 +51,7 @@
         cardano-crypto-test = ./cardano-crypto-test.nix;
         cardano-prelude = ./cardano-prelude.nix;
         cardano-prelude-test = ./cardano-prelude-test.nix;
+        quickcheck-state-machine = ./quickcheck-state-machine.nix;
         cardano-crypto = ./cardano-crypto.nix;
         };
       compiler.version = "8.6.5";
