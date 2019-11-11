@@ -36,6 +36,7 @@ import qualified Data.Set as S
 import           Data.TreeDiff (ToExpr (..), defaultExprViaShow)
 import           GHC.Generics
 import           GHC.Stack
+import qualified System.Directory as Dir
 import           System.Random (getStdRandom, randomR)
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
@@ -56,6 +57,7 @@ import           Ouroboros.Consensus.Util.IOLike
 
 import           Ouroboros.Storage.FS.API
 import           Ouroboros.Storage.FS.API.Types
+import           Ouroboros.Storage.FS.IO
 import qualified Ouroboros.Storage.Util.ErrorHandling as EH
 import           Ouroboros.Storage.VolatileDB.API
 import qualified Ouroboros.Storage.VolatileDB.Impl as Internal hiding (openDB)
@@ -281,32 +283,39 @@ runPure dbm (CmdErr cmd err) =
       return $ Unit ()
 
 sm :: IOLike m
-   => Bool
-   -> StrictTVar m Errors
-   -> VolatileDB BlockId m
+   => VolatileDB BlockId m
    -> Internal.VolatileDBEnv m BlockId
+   -> GenOption m
    -> DBModel BlockId
    -> StateMachine Model (At CmdErr) m (At Resp)
-sm terminatingCmd errorsVar db env dbm = StateMachine {
+sm db env genOption dbm = StateMachine {
       initModel     = initModelImpl dbm
     , transition    = transitionImpl
     , precondition  = preconditionImpl
     , postcondition = postconditionImpl
-    , generator     = generatorImpl True terminatingCmd
+    , generator     = generatorImpl genOption
     , shrinker      = shrinkerImpl
-    , semantics     = semanticsImpl errorsVar db env
+    , semantics     = semanticsImpl (getErrorsVar genOption) db env
     , mock          = mockImpl
     , invariant     = Nothing
     , cleanup       = noCleanup
     }
 
-stateMachine :: IOLike m
-             => DBModel BlockId
-             -> StateMachine Model (At CmdErr) m (At Resp)
-stateMachine = sm
-                True
-                (error "errorsVar unused")
-                (error "semantics and DB used during command generation")
+smUnusedSeq :: IOLike m
+            => DBModel BlockId
+            -> StateMachine Model (At CmdErr) m (At Resp)
+smUnusedSeq = mkSmUnused (stdSequentialGenOption (error "errorsVar unused"))
+
+smUnusedParallel :: IOLike m
+                 => DBModel BlockId
+                 -> StateMachine Model (At CmdErr) m (At Resp)
+smUnusedParallel = mkSmUnused stdParallelGenOption
+
+mkSmUnused :: IOLike m
+           => GenOption m
+           -> DBModel BlockId
+           -> StateMachine Model (At CmdErr) m (At Resp)
+mkSmUnused = sm (error "semantics and DB used during command generation")
                 (error "env used during command generation")
 
 initModelImpl :: DBModel BlockId -> Model r
@@ -370,7 +379,52 @@ postconditionImpl model cmdErr resp =
   where
     ev = lockstep model cmdErr resp
 
-generatorCmdImpl :: Bool -> Model Symbolic -> Maybe (Gen (At Cmd Symbolic))
+
+-- Generating flags.
+
+-- | Is is for parallel tests?
+data Parallelism = Parallel | Sequential
+    deriving (Eq, Show)
+
+-- | Allow to simulate errors.
+data SimulatedErrors m = AllowErrors (StrictTVar m Errors) | NoErrors
+
+-- | Allow commands that corrupt the db to the point where it is
+-- impossible to recover and the tests should end.
+data TerminatingCommand = AllowTerminator | NoTerminator
+    deriving (Eq, Show)
+
+data GenOption m = GenOption {
+    genParallel   :: Parallelism
+  , genError      :: SimulatedErrors m
+  , genTerminator :: TerminatingCommand
+  }
+
+stdSequentialGenOption :: StrictTVar m Errors -> GenOption m
+stdSequentialGenOption errorsVar = GenOption {
+      genParallel   = Sequential
+    , genError      = AllowErrors errorsVar
+    , genTerminator = AllowTerminator
+    }
+
+stdParallelGenOption :: GenOption m
+stdParallelGenOption = GenOption {
+      genParallel   = Parallel
+    , genError      = NoErrors
+    , genTerminator = AllowTerminator
+    }
+
+getErrorsVar :: GenOption m -> Maybe (StrictTVar m Errors)
+getErrorsVar GenOption{..} = case genError of
+    AllowErrors var -> Just var
+    _               -> Nothing
+
+hasErrors :: GenOption m -> Bool
+hasErrors GenOption{..} = case genError of
+    AllowErrors _ -> True
+    _             -> False
+
+generatorCmdImpl :: TerminatingCommand -> Model Symbolic -> Maybe (Gen (At Cmd Symbolic))
 generatorCmdImpl terminatingCmd m@Model {..} =
     if shouldEnd then Nothing else Just $ do
     block <- blockIdGenerator m
@@ -394,8 +448,8 @@ generatorCmdImpl terminatingCmd m@Model {..} =
       , (if open dbModel then 10 else 1000, return $ ReOpen)
       , (if null blocks then 0 else 30, return $ AskIfMember blocks)
       , (if null dbFiles then 0 else 30, Corrupt <$> generateCorruptions dbFiles)
-      , (if terminatingCmd then 1 else 0, return CreateInvalidFile)
-      , (if terminatingCmd && isJust duplicate then 1 else 0, return $ fromJust duplicate)
+      , (if canTerminate then 1 else 0, return CreateInvalidFile)
+      , (if canTerminate && isJust duplicate then 1 else 0, return $ fromJust duplicate)
       ]
   where
     dbFiles = getDBFiles dbModel
@@ -404,10 +458,14 @@ generatorCmdImpl terminatingCmd m@Model {..} =
         []   -> return Nothing
         bids -> Just <$> elements bids
     mkDuplicate pblock = \(f, b) -> DuplicateBlock f b $ WithOrigin.At pblock
+    canTerminate = terminatingCmd == AllowTerminator
 
-generatorImpl :: Bool -> Bool -> Model Symbolic -> Maybe (Gen (At CmdErr Symbolic))
-generatorImpl mkErr terminatingCmd m@Model {..} = do
-    genCmd <- generatorCmdImpl terminatingCmd m
+generatorImpl :: GenOption m -> Model Symbolic
+              -> Maybe (Gen (At CmdErr Symbolic))
+generatorImpl genOption@GenOption{..} m@Model {..} = do
+    genCmd <- case genParallel of
+      Sequential -> generatorCmdImpl genTerminator m
+      Parallel   -> generatorCmdImplParallel m
     Just $ do
       At cmd <- genCmd
       err <- if not (allowErrorFor cmd) then return Nothing
@@ -417,8 +475,28 @@ generatorImpl mkErr terminatingCmd m@Model {..} = do
             -- 'arbitrary'. Now we disable partial writes and
             -- 'SubstituteWithJunk' corruptions because we cannot
             -- predict what the model should do with those.
-          , (if mkErr then 1 else 0, Just <$> genErrors False False)]
+          , (if canErr then 1 else 0, Just <$> genErrors False False)]
       return $ At $ CmdErr cmd err
+  where
+    canErr = hasErrors genOption
+
+generatorCmdImplParallel :: Model Symbolic -> Maybe (Gen (At Cmd Symbolic))
+generatorCmdImplParallel m@Model {..} =
+    if shouldEnd then Nothing else Just $ do
+    block <- blockIdGenerator m
+    pblock <- predecessorGenerator
+    blocks <- listOf $ blockIdGenerator m
+    At <$> frequency [
+        (150, return $ GetBlock block)
+      , (100, return $ GetBlockIds)
+      , (150, return $ PutBlock block $ WithOrigin.At pblock)
+      , (100, return $ GetSuccessors $ WithOrigin.At block : (WithOrigin.At <$> possiblePredecessors))
+      , (100, return $ GetPredecessor blocks)
+      , (100, return $ GetMaxSlotNo)
+      , (50, return $ GarbageCollect block)
+      , (50, return $ IsOpen)
+      , (if open dbModel then 10 else 1000, return $ ReOpen)
+      ]
 
 allowErrorFor :: Cmd -> Bool
 allowErrorFor CreateInvalidFile {} = False
@@ -456,14 +534,15 @@ shrinkCmd Model{..} cmd = case cmd of
     _                   -> []
 
 semanticsImpl :: IOLike m
-              => StrictTVar m Errors
+              => Maybe (StrictTVar m Errors)
               -> VolatileDB BlockId m
               -> Internal.VolatileDBEnv m BlockId -- ^ Used only for corruptions
               -> At CmdErr Concrete
               -> m (At Resp Concrete)
-semanticsImpl errorsVar m env (At cmderr) = At . Resp <$> case cmderr of
-    CmdErr cmd Nothing -> try (runDB m cmd env)
-    CmdErr cmd (Just errors) -> do
+semanticsImpl mErrorsVar m env (At cmderr) = At . Resp <$> case (cmderr, mErrorsVar) of
+    (CmdErr cmd Nothing, _)      -> try (runDB m cmd env)
+    (CmdErr _ (Just _), Nothing) -> error "errors not supported by generation"
+    (CmdErr cmd (Just errors), Just errorsVar) -> do
       res <- withErrors errorsVar errors $
         try (runDB m cmd env)
       case res of
@@ -537,7 +616,7 @@ prop_sequential =
             test errorsVar hasFS = do
               (db, env) <- run $ Internal.openDBFull hasFS EH.monadCatch
                 (EH.throwCantCatch EH.monadCatch) (myParser hasFS) 3
-              let sm' = sm True errorsVar db env dbm
+              let sm' = sm db env (stdSequentialGenOption errorsVar) dbm
               (hist, _model, res) <- runCommands sm' cmds
               run $ closeDB db
               return (hist, res)
@@ -556,21 +635,42 @@ prop_sequential =
             $ res === Ok
     where
         dbm = initDBModel 3
-        smUnused = stateMachine
-                    dbm
+        smUnused = smUnusedSeq dbm
 
         groupIsMember n =
           if n<5 then show n
           else if n < 20 then "5-19"
           else if n < 100 then "20-99" else ">=100"
 
+prop_parallel :: Property
+prop_parallel = forAllParallelCommands smUnused Nothing $
+    \cmds -> checkCommandNamesParallel cmds $ monadicIO $ do
+    liftIO $ do
+        Dir.removePathForcibly path
+        Dir.createDirectory path
+    let hasFS = ioHasFS $ MountPoint path
+    (db, env) <- run $ Internal.openDBFull hasFS EH.monadCatch
+                    (EH.throwCantCatch EH.monadCatch) (myParser hasFS) 3
+    -- TODO simulation errors and corruption for parallel tests.
+    let sm' = sm db env stdParallelGenOption dbm
+    prettyParallelCommands cmds =<< runParallelCommandsNTimes 1 sm' cmds
+    run $ do
+        closeDB db
+        Dir.removePathForcibly path
+  where
+    dbm = initDBModel 3
+    path = "parallel-volDB-qsm-tests"
+    smUnused :: StateMachine Model (At CmdErr) IO (At Resp)
+    smUnused = smUnusedParallel dbm
+
 tests :: TestTree
 tests = testGroup "VolatileDB-q-s-m" [
-      testProperty "q-s-m-Errors" $ prop_sequential
+      testProperty "sequential" prop_sequential
+    , testProperty "parallel" prop_parallel
     ]
 
 {-------------------------------------------------------------------------------
-  Labelling
+  Labelling. For now this only works for sequential tests.
 -------------------------------------------------------------------------------}
 
 -- | Predicate on events
@@ -827,5 +927,4 @@ showLabelledExamples' mReplay numTests = do
   where
     dbm = initDBModel 3
     smUnused :: StateMachine Model (At CmdErr) IO (At Resp)
-    smUnused = stateMachine
-                dbm
+    smUnused = smUnusedSeq dbm
