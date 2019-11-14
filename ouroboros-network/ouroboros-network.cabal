@@ -104,6 +104,7 @@ library
                        Ouroboros.Network.Protocol.LocalTxSubmission.Client
                        Ouroboros.Network.Protocol.LocalTxSubmission.Server
                        Ouroboros.Network.Protocol.LocalTxSubmission.Codec
+                       Ouroboros.Network.TxIdPSQ
                        Ouroboros.Network.TxSubmission.Inbound
                        Ouroboros.Network.TxSubmission.Outbound
 
@@ -249,6 +250,7 @@ test-suite test-network
                        Ouroboros.Network.Subscription.PeerState
                        Ouroboros.Network.Subscription.Subscriber
                        Ouroboros.Network.Subscription.Worker
+                       Ouroboros.Network.TxIdPSQ
                        Ouroboros.Network.TxSubmission.Inbound
                        Ouroboros.Network.TxSubmission.Outbound
 
@@ -291,6 +293,7 @@ test-suite test-network
                        ouroboros-network-testing,
                        pipes,
                        process,
+                       psqueues          >=0.2.3 && <0.3,
                        QuickCheck,
                        serialise,
                        splitmix,
