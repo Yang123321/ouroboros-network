@@ -95,7 +95,6 @@ runMuxWithQueues
      , Ord ptcl
      , Enum ptcl
      , Bounded ptcl
-     , Mx.ProtocolEnum ptcl
      , Show ptcl
      , Mx.MiniProtocolLimits ptcl
      , Eq  (Async m ())

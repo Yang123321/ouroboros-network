@@ -86,7 +86,7 @@ pipeAsMuxBearer tracer pcRead pcWrite = do
       sduSize = return 32768
 
 runMuxWithPipes
-    :: ( Mx.ProtocolEnum ptcl, Ord ptcl, Enum ptcl, Bounded ptcl, Show ptcl
+    :: ( Ord ptcl, Enum ptcl, Bounded ptcl, Show ptcl
        , Mx.MiniProtocolLimits ptcl)
     => Tracer IO (Mx.WithMuxBearer String Mx.MuxTrace)
     -> peerid
