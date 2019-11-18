@@ -86,10 +86,9 @@ pipeAsMuxBearer tracer pcRead pcWrite = do
       sduSize = return 32768
 
 runMuxWithPipes
-    :: ( Ord ptcl, Enum ptcl, Bounded ptcl, Show ptcl )
-    => Tracer IO (Mx.WithMuxBearer String Mx.MuxTrace)
+    :: Tracer IO (Mx.WithMuxBearer String Mx.MuxTrace)
     -> peerid
-    -> Mx.MuxApplication appType peerid ptcl IO a b
+    -> Mx.MuxApplication appType peerid IO a b
     -> Handle -- ^ read handle
     -> Handle -- ^ write handle
     -> IO ()
