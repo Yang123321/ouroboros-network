@@ -4,7 +4,6 @@
 
 module Network.Mux.Bearer.Socket
   ( socketAsMuxBearer
-  , hexDump
   ) where
 
 import           Control.Monad (when)
@@ -12,11 +11,9 @@ import           Control.Tracer
 import qualified Data.ByteString.Lazy as BL
 import           Data.Int
 import           Data.Word
-import           Text.Printf
 
 import           GHC.Stack
 
-import           Control.Monad.Class.MonadSay
 import           Control.Monad.Class.MonadThrow
 import           Control.Monad.Class.MonadTime
 import           Control.Monad.Class.MonadTimer
@@ -29,10 +26,6 @@ import           Network.Mux.Types (MuxBearer)
 import qualified Network.Mux.Types as Mx
 import qualified Network.Mux.Codec as Mx
 import qualified Network.Mux.Time as Mx
-
-hexDump :: BL.ByteString -> String -> IO ()
-hexDump buf out | BL.empty == buf = say out
-hexDump buf out = hexDump (BL.tail buf) (out ++ printf "0x%02x " (BL.head buf))
 
 
 -- |
@@ -56,19 +49,15 @@ socketAsMuxBearer tracer sd =
       readSocket = do
           traceWith tracer $ Mx.MuxTraceRecvHeaderStart
           hbuf <- recvLen' True 8 []
-          --say "read"
-          --hexDump hbuf ""
           case Mx.decodeMuxSDU hbuf of
               Left  e      -> throwM e
               Right header -> do
-                  -- say $ printf "decoded mux header, goint to read %d bytes" (Mx.msLength header)
                   traceWith tracer $ Mx.MuxTraceRecvHeaderEnd header
                   traceWith tracer $ Mx.MuxTraceRecvPayloadStart (fromIntegral $ Mx.msLength header)
                   blob <- recvLen' False (fromIntegral $ Mx.msLength header) []
                   ts <- getMonotonicTime
                   traceWith tracer (Mx.MuxTraceRecvDeltaQObservation header ts)
                   traceWith tracer $ Mx.MuxTraceRecvPayloadEnd blob
-                  --hexDump blob ""
                   return (header {Mx.msBlob = blob}, ts)
 
       recvLen' :: Bool -> Int64 -> [BL.ByteString] -> IO BL.ByteString
@@ -94,12 +83,10 @@ socketAsMuxBearer tracer sd =
 
       writeSocket :: Mx.MuxSDU -> IO Time
       writeSocket sdu = do
-          --say "write"
           ts <- getMonotonicTime
           let ts32 = Mx.timestampMicrosecondsLow32Bits ts
               sdu' = sdu { Mx.msTimestamp = Mx.RemoteClockModel ts32 }
               buf  = Mx.encodeMuxSDU sdu'
-          --hexDump buf ""
           traceWith tracer $ Mx.MuxTraceSendStart sdu'
           Socket.sendAll sd buf
             `catch` Mx.handleIOException "sendAll errored"

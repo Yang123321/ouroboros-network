@@ -10,7 +10,6 @@ import qualified Data.ByteString.Lazy as BL
 import           Data.Word (Word16)
 
 import           Control.Monad.Class.MonadAsync
-import           Control.Monad.Class.MonadSay
 import           Control.Monad.Class.MonadSTM.Strict
 import           Control.Monad.Class.MonadTime
 import           Control.Monad.Class.MonadTimer
@@ -84,7 +83,6 @@ runMuxWithQueues
   :: ( MonadAsync m
      , MonadCatch m
      , MonadMask m
-     , MonadSay m
      , MonadSTM m
      , MonadThrow m
      , MonadThrow (STM m)

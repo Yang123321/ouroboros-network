@@ -44,14 +44,12 @@ pipeAsMuxBearer tracer pcRead pcWrite = do
           case Mx.decodeMuxSDU hbuf of
               Left e     -> throwM e
               Right header -> do
-                  --say $ printf "decoded mux header, goint to read %d bytes" (Mx.msLength header)
                   traceWith tracer $ Mx.MuxTraceRecvHeaderEnd header
                   traceWith tracer $ Mx.MuxTraceRecvPayloadStart (fromIntegral $ Mx.msLength header)
                   blob <- recvLen' pcRead (fromIntegral $ Mx.msLength header) []
                   ts <- getMonotonicTime
                   traceWith tracer (Mx.MuxTraceRecvDeltaQObservation header ts)
                   traceWith tracer $ Mx.MuxTraceRecvPayloadEnd blob
-                  --hexDump blob ""
                   return (header {Mx.msBlob = blob}, ts)
 
       recvLen' :: Handle -> Int -> [BL.ByteString] -> IO BL.ByteString

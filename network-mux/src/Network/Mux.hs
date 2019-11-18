@@ -21,7 +21,6 @@ module Network.Mux (
 
 import           Control.Monad
 import           Control.Monad.Class.MonadAsync
-import           Control.Monad.Class.MonadSay
 import           Control.Monad.Class.MonadSTM.Strict
 import           Control.Monad.Class.MonadThrow
 import           Control.Tracer
@@ -74,12 +73,9 @@ import           Network.Mux.Types
 -- * at any given time each @TranslocationServiceRequest@ contains a non-empty
 -- 'Wanton'
 --
--- TODO: replace MonadSay with iohk-monitoring-framework.
---
 muxStart
     :: forall m appType peerid a b.
        ( MonadAsync m
-       , MonadSay m
        , MonadSTM m
        , MonadThrow m
        , MonadThrow (STM m)
@@ -224,7 +220,7 @@ muxStart tracer peerid (MuxApplication ptcls) bearer = do
             c <- readTVar cnt
             unless (c == 0) retry
 
-muxControl :: (HasCallStack, MonadSTM m, MonadSay m, MonadThrow m)
+muxControl :: (HasCallStack, MonadSTM m, MonadThrow m)
            => StrictTVar m BL.ByteString
            -> m ()
 muxControl q = do
