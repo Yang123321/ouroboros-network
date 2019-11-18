@@ -9,7 +9,6 @@ module Network.Mux.Bearer.Pipe (
   , runMuxWithPipes
   ) where
 
-import           Control.Monad.Class.MonadSTM.Strict
 import           Control.Monad.Class.MonadThrow
 import           Control.Monad.Class.MonadTime
 import           Control.Tracer
@@ -30,15 +29,13 @@ pipeAsMuxBearer
   :: Tracer IO Mx.MuxTrace
   -> Handle -- ^ read handle
   -> Handle -- ^ write handle
-  -> IO (MuxBearer IO)
+  -> MuxBearer IO
 pipeAsMuxBearer tracer pcRead pcWrite = do
-      mxState <- atomically $ newTVar Mx.Larval
-      return $ Mx.MuxBearer {
-          Mx.read = readPipe,
-          Mx.write = writePipe,
-          Mx.sduSize = sduSize,
-          Mx.state = mxState
-        }
+      Mx.MuxBearer {
+        Mx.read    = readPipe,
+        Mx.write   = writePipe,
+        Mx.sduSize = sduSize
+      }
     where
       readPipe :: HasCallStack => IO (Mx.MuxSDU, Time)
       readPipe = do
@@ -94,6 +91,6 @@ runMuxWithPipes
     -> IO ()
 runMuxWithPipes tracer peerid app pcRead pcWrite = do
     let muxTracer = Mx.WithMuxBearer "Pipe" `contramap` tracer
-    bearer <- pipeAsMuxBearer muxTracer pcRead pcWrite
+        bearer    = pipeAsMuxBearer muxTracer pcRead pcWrite
     Mx.muxStart muxTracer peerid app bearer
 

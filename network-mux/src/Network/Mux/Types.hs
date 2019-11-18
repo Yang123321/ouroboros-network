@@ -187,7 +187,6 @@ data MuxBearer m = MuxBearer {
     , read    :: m (MuxSDU, Time)
     -- | Return a suitable MuxSDU payload size.
     , sduSize :: m Word16
-    , state   :: StrictTVar m MuxBearerState
     }
 
 
@@ -293,7 +292,7 @@ data MuxTrace =
     | MuxTraceRecvEnd BL.ByteString
     | MuxTraceSendStart MuxSDU
     | MuxTraceSendEnd
-    | MuxTraceStateChange MuxBearerState MuxBearerState
+    | MuxTraceState MuxBearerState
     | MuxTraceCleanExit String
     | MuxTraceExceptionExit SomeException String
     | MuxTraceChannelRecvStart MiniProtocolNum
@@ -329,7 +328,7 @@ instance Show MuxTrace where
         (show $ msMode sdu)
         (BL.length $ msBlob sdu)
     show MuxTraceSendEnd = printf "Bearer Send End"
-    show (MuxTraceStateChange old new) = printf "State Change: %s -> %s" (show old) (show new)
+    show (MuxTraceState new) = printf "State: %s" (show new)
     show (MuxTraceCleanExit mp) = printf "Miniprotocol %s triggered clean exit" mp
     show (MuxTraceExceptionExit e mp) = printf "Miniprotocol %s triggered exit with %s" mp (show e)
     show (MuxTraceChannelRecvStart mid) = printf "Channel Receive Start on %s" (show mid)

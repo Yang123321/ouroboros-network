@@ -17,7 +17,6 @@ import           Text.Printf
 import           GHC.Stack
 
 import           Control.Monad.Class.MonadSay
-import           Control.Monad.Class.MonadSTM.Strict
 import           Control.Monad.Class.MonadThrow
 import           Control.Monad.Class.MonadTime
 import           Control.Monad.Class.MonadTimer
@@ -45,15 +44,13 @@ hexDump buf out = hexDump (BL.tail buf) (out ++ printf "0x%02x " (BL.head buf))
 socketAsMuxBearer
   :: Tracer IO Mx.MuxTrace
   -> Socket.Socket
-  -> IO (MuxBearer IO)
-socketAsMuxBearer tracer sd = do
-      mxState <- atomically $ newTVar Mx.Larval
-      return $ Mx.MuxBearer {
-          Mx.read    = readSocket,
-          Mx.write   = writeSocket,
-          Mx.sduSize = sduSize,
-          Mx.state   = mxState
-        }
+  -> MuxBearer IO
+socketAsMuxBearer tracer sd =
+      Mx.MuxBearer {
+        Mx.read    = readSocket,
+        Mx.write   = writeSocket,
+        Mx.sduSize = sduSize
+      }
     where
       readSocket :: HasCallStack => IO (Mx.MuxSDU, Time)
       readSocket = do
