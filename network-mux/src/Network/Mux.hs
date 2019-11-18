@@ -248,15 +248,15 @@ muxChannel tracer pmss mid mc md cnt = do
                 callStack
         atomically $ modifyTVar cnt (+ 1)
         atomically $ putTMVar w encoding
-        traceWith tracer $ MuxTraceChannelSendStart mid encoding
+        traceWith tracer $ MuxTraceChannelSendStart mc encoding
         atomically $ writeTBQueue (tsrQueue pmss) (TLSRDemand mc md want)
-        traceWith tracer $ MuxTraceChannelSendEnd mid
+        traceWith tracer $ MuxTraceChannelSendEnd mc
 
     recv :: m (Maybe BL.ByteString)
     recv = do
         -- We receive CBOR encoded messages as ByteStrings (possibly partial) from the
         -- matching ingress queueu. This is the same queue the 'demux' thread writes to.
-        traceWith tracer $ MuxTraceChannelRecvStart mid
+        traceWith tracer $ MuxTraceChannelRecvStart mc
         blob <- atomically $ do
             let q = ingressQueue (dispatchTable pmss) mid md
             blob <- readTVar q
@@ -264,7 +264,7 @@ muxChannel tracer pmss mid mc md cnt = do
                 then retry
                 else writeTVar q BL.empty >> return blob
         -- say $ printf "recv mid %s mode %s blob len %d" (show mid) (show md) (BL.length blob)
-        traceWith tracer $ MuxTraceChannelRecvEnd mid blob
+        traceWith tracer $ MuxTraceChannelRecvEnd mc blob
         return $ Just blob
 
 muxBearerSetState :: (MonadSTM m, Ord ptcl, Enum ptcl, Bounded ptcl)
