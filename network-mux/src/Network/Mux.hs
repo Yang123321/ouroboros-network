@@ -184,7 +184,8 @@ muxStart tracer peerid (MuxApplication ptcls) bearer = do
             ]
       where
         mkChannel mode mpdId =
-            muxChannel tracer pmss (AppProtocolId mpdId) mode cnt
+            muxChannel tracer pmss (AppProtocolId mpdId)
+                       (fromProtocolEnum (AppProtocolId mpdId)) mode cnt
 
     -- cnt represent the number of SDUs that are queued but not yet sent.  Job
     -- threads will be prevented from exiting until all SDUs have been
@@ -226,10 +227,11 @@ muxChannel
     => Tracer m (MuxTrace ptcl)
     -> PerMuxSharedState ptcl m
     -> MiniProtocolId ptcl
+    -> MiniProtocolCode
     -> MiniProtocolMode
     -> StrictTVar m Int
     -> m (Channel m)
-muxChannel tracer pmss mid md cnt = do
+muxChannel tracer pmss mid mc md cnt = do
     w <- newEmptyTMVarM
     return $ Channel { send = send (Wanton w)
                      , recv}
@@ -251,7 +253,7 @@ muxChannel tracer pmss mid md cnt = do
         atomically $ modifyTVar cnt (+ 1)
         atomically $ putTMVar w encoding
         traceWith tracer $ MuxTraceChannelSendStart mid encoding
-        atomically $ writeTBQueue (tsrQueue pmss) (TLSRDemand mid md want)
+        atomically $ writeTBQueue (tsrQueue pmss) (TLSRDemand mc md want)
         traceWith tracer $ MuxTraceChannelSendEnd mid
 
     recv :: m (Maybe BL.ByteString)
