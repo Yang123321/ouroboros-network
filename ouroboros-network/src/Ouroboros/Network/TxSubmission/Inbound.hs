@@ -3,7 +3,6 @@
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE BangPatterns        #-}
 
 module Ouroboros.Network.TxSubmission.Inbound (
@@ -23,14 +22,20 @@ import           Data.Sequence.Strict (StrictSeq)
 import           Data.Foldable (foldl')
 
 import           Control.Monad (unless)
-import           Control.Monad.Class.MonadSTM
+import           Control.Monad.Class.MonadSTM hiding (modifyTVar, readTVar)
+import           Control.Monad.Class.MonadSTM.Strict (StrictTVar, modifyTVar,
+                     readTVar)
 import           Control.Monad.Class.MonadThrow
+import           Control.Monad.Class.MonadTime (MonadTime (..))
 import           Control.Exception (assert)
 import           Control.Tracer (Tracer)
 
 import           Network.TypedProtocol.Pipelined (N, Nat(..))
 
 import           Ouroboros.Network.Protocol.TxSubmission.Server
+import qualified Ouroboros.Network.TxIdPSQ as TxIdPSQ (insertTxIds,
+                     intersection)
+import           Ouroboros.Network.TxIdPSQ (TxIdPSQ)
 
 
 
@@ -98,6 +103,28 @@ data ServerState txid tx = ServerState {
        -- transactions out of order but must use the original order when adding
        -- to the mempool or acknowledging transactions.
        --
+       -- It's worth noting that some of the transaction IDs in this 'Map' may
+       -- be mapped to 'Nothing'. This is because the client will not
+       -- necessarily send all of the transactions that we asked for, but we
+       -- still need to acknowledge those transactions.
+       --
+       -- For example, if we request a transaction that no longer exists in
+       -- the client's mempool, the client will just exclude it from the
+       -- response. However, we still need to acknowledge it (i.e. remove it
+       -- from the 'unacknowledgedTxIds') in order to note that we're no
+       -- longer awaiting receipt of that transaction.
+       --
+       -- We also utilize this field to pre-emptively specify transaction IDs
+       -- that we're not going to bother requesting from the client.
+       --
+       -- For example, if we request some transaction IDs and, upon receiving
+       -- them, notice that some subset of them already exist within our
+       -- mempool, we  wouldn't want to bother asking for that subset's
+       -- corresponding transactions since we already have them. Therefore,
+       -- we would just add those transaction IDs mapped to 'Nothing' to the
+       -- 'bufferedTxs' such that those transactions are properly
+       -- acknowledged, but never actually requested.
+       --
        bufferedTxs         :: Map txid (Maybe tx),
 
        -- | The number of transactions we can acknowledge on our next request
@@ -114,12 +141,16 @@ initialServerState = ServerState 0 Seq.empty Map.empty Map.empty 0
 
 txSubmissionInbound
   :: forall txid tx idx m.
-     (Ord txid, Ord idx, MonadSTM m, MonadThrow m)
+     (Ord txid, Ord idx, MonadSTM m, MonadThrow m, MonadTime m)
   => Tracer m (TraceTxSubmissionInbound txid tx)
-  -> Word16         -- ^ Maximum number of unacknowledged txids allowed
+  -> Word16
+  -- ^ Maximum number of unacknowledged txids allowed
+  -> StrictTVar m (TxIdPSQ txid)
+  -- ^ A PSQ containing the IDs of transactions which we've most recently added
+  -- to the mempool.
   -> TxSubmissionMempoolWriter txid tx idx m
   -> TxSubmissionServerPipelined txid tx m ()
-txSubmissionInbound _tracer maxUnacked TxSubmissionMempoolWriter{..} =
+txSubmissionInbound _tracer maxUnacked txIdPsqVar mpWriter =
     TxSubmissionServerPipelined (serverIdle Zero initialServerState)
   where
     --TODO: replace these fixed limits by policies based on TxSizeInBytes
@@ -127,6 +158,11 @@ txSubmissionInbound _tracer maxUnacked TxSubmissionMempoolWriter{..} =
     -- These numbers are for demo purposes only, the throughput will be low.
     maxTxIdsToRequest = 3 :: Word16
     maxTxToRequest    = 2 :: Word16
+
+    TxSubmissionMempoolWriter
+      { txId
+      , mempoolAddTxs
+      } = mpWriter
 
     serverIdle :: forall (n :: N).
                   Nat n
@@ -192,16 +228,46 @@ txSubmissionInbound _tracer maxUnacked TxSubmissionMempoolWriter{..} =
                 -> ServerState txid tx
                 -> Collect txid tx
                 -> m (ServerStIdle n txid tx m ())
-    handleReply n st (CollectTxIds reqNo txids) =
-      -- Upon receiving a batch of new txids we extend our available set,
-      -- and extended the unacknowledged sequence.
-      return $ serverIdle n st {
-        requestedTxIdsInFlight = requestedTxIdsInFlight st - reqNo,
-        unacknowledgedTxIds    = unacknowledgedTxIds st
-                              <> Seq.fromList (map fst txids),
-        availableTxids         = availableTxids st
-                              <> Map.fromList txids
-      }
+    handleReply n st (CollectTxIds reqNo txids) = do
+        -- Upon receiving a batch of new txids we extend our available set,
+        -- and extended the unacknowledged sequence.
+        --
+        -- In addition to this, we also determine whether any of the newly
+        -- received txids have been recently added to the mempool. For txids
+        -- meeting that criteria, we don't want to add those to the available
+        -- set and want to add them to the 'bufferedTxs' set.
+        --
+        -- n.b. We exclude these txids from the 'availableTxids' so that we
+        -- don't end up requesting the corresponding transactions in the
+        -- future. Also, we add them to the 'bufferedTxs' so that we
+        -- appropriately acknowledge them.
+        availableTxidsRecentlyInMempool <-
+          atomically getAvailableTxidsRecentlyInMempool
+        return $ serverIdle n st {
+          requestedTxIdsInFlight = requestedTxIdsInFlight st - reqNo,
+          unacknowledgedTxIds    = unacknowledgedTxIds st
+                                <> Seq.fromList (map fst txids),
+          availableTxids         = Map.withoutKeys
+                                     availableTxids'
+                                     (Set.fromList availableTxidsRecentlyInMempool),
+          bufferedTxs            = buildNextBufferedTxs availableTxidsRecentlyInMempool
+        }
+      where
+        -- The 'availableTxids' concatenated with those we just received in
+        -- this reply.
+        availableTxids' = availableTxids st <> Map.fromList txids
+
+        -- Build the buffered transactions set with which we will extend that
+        -- of the 'ServerState'.
+        buildNextBufferedTxs tids = bufferedTxs st
+          <> Map.fromList [(tid, Nothing) | tid <- tids]
+
+        -- Get the transactions from the availableTxids' and the newly
+        -- received txids that have been recently added to the mempool.
+        getAvailableTxidsRecentlyInMempool :: STM m [txid]
+        getAvailableTxidsRecentlyInMempool =
+          TxIdPSQ.intersection (Map.keys availableTxids')
+            <$> readTVar txIdPsqVar
 
     handleReply n st (CollectTxs txids txs) = do
 
@@ -250,7 +316,14 @@ txSubmissionInbound _tracer maxUnacked TxSubmissionMempoolWriter{..} =
           bufferedTxs'' = foldl' (flip Map.delete)
                                  bufferedTxs' acknowledgedTxIds
 
-      _ <- mempoolAddTxs txsReady
+      addedTxIds <- mempoolAddTxs txsReady
+
+      -- Insert the transactions that were added to the mempool into the
+      -- 'TxIdPSQ'.
+      t <- getMonotonicTime
+      _ <- atomically $ modifyTVar
+        txIdPsqVar
+        (TxIdPSQ.insertTxIds addedTxIds t)
 
       return $ serverIdle n st {
         bufferedTxs         = bufferedTxs'',

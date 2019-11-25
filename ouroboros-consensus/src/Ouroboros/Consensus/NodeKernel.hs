@@ -40,6 +40,8 @@ import           Ouroboros.Network.BlockFetch.State (FetchMode (..))
 import           Ouroboros.Network.Point (WithOrigin (..))
 import           Ouroboros.Network.Protocol.ChainSync.PipelineDecision
                      (MkPipelineDecision)
+import           Ouroboros.Network.TxIdPSQ (TxIdPSQ)
+import qualified Ouroboros.Network.TxIdPSQ as TxIdPSQ (empty)
 import           Ouroboros.Network.TxSubmission.Inbound
                      (TxSubmissionMempoolWriter)
 import qualified Ouroboros.Network.TxSubmission.Inbound as Inbound
@@ -86,6 +88,10 @@ data NodeKernel m peer blk = NodeKernel {
 
       -- | The fetch client registry, used for the block fetch clients.
     , getFetchClientRegistry :: FetchClientRegistry peer (Header blk) blk m
+
+      -- | The IDs of transactions that we've most recently added to the
+      -- mempool.
+    , getTxIdPsq             :: StrictTVar m (TxIdPSQ (GenTxId blk))
 
       -- | Read the current candidates
     , getNodeCandidates      :: StrictTVar m (Map peer (StrictTVar m (AnchoredFragment (Header blk))))
@@ -160,7 +166,7 @@ initNodeKernel args@NodeArgs { registry, cfg, tracers, maxBlockBodySize
     whenJust blockProduction $ forkBlockProduction maxBlockBodySize st
 
     let IS { blockFetchInterface, fetchClientRegistry, varCandidates,
-             chainDB, mempool } = st
+             chainDB, mempool, txIdPsq } = st
 
     -- Run the block fetch logic in the background. This will call
     -- 'addFetchedBlock' whenever a new block is downloaded.
@@ -175,6 +181,7 @@ initNodeKernel args@NodeArgs { registry, cfg, tracers, maxBlockBodySize
       , getMempool             = mempool
       , getNodeConfig          = cfg
       , getFetchClientRegistry = fetchClientRegistry
+      , getTxIdPsq             = txIdPsq
       , getNodeCandidates      = varCandidates
       , getTracers             = tracers
       }
@@ -194,6 +201,7 @@ data InternalState m peer blk = IS {
     , varCandidates       :: StrictTVar m (Map peer (StrictTVar m (AnchoredFragment (Header blk))))
     , varState            :: StrictTVar m (NodeState (BlockProtocol blk))
     , mempool             :: Mempool m blk TicketNo
+    , txIdPsq             :: StrictTVar m (TxIdPSQ (GenTxId blk))
     }
 
 initInternalState
@@ -211,6 +219,7 @@ initInternalState NodeArgs { tracers, chainDB, registry, cfg,
                              initState, mempoolCap } = do
     varCandidates  <- newTVarM mempty
     varState       <- newTVarM initState
+    txIdPsq        <- newTVarM TxIdPSQ.empty
     mempool        <- openMempool registry
                                   (chainDBLedgerInterface chainDB)
                                   (ledgerConfigView cfg)
