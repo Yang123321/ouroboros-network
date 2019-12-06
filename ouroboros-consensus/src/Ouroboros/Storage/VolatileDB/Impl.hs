@@ -94,6 +94,7 @@ module Ouroboros.Storage.VolatileDB.Impl
     ) where
 
 import           Control.Monad
+import           Data.Bifunctor (first)
 import qualified Data.ByteString.Builder as BS
 import           Data.ByteString.Lazy (ByteString)
 import           Data.List (find, sortOn)
@@ -107,7 +108,7 @@ import           Data.Word (Word64)
 import           GHC.Generics (Generic)
 import           GHC.Stack
 
-import           Control.Monad.Class.MonadThrow
+import           Control.Monad.Class.MonadThrow hiding (try)
 
 import           Ouroboros.Network.Point (WithOrigin)
 
@@ -117,7 +118,7 @@ import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Storage.FS.API
 import           Ouroboros.Storage.FS.API.Types
 import           Ouroboros.Storage.Util.ErrorHandling (ErrorHandling (..),
-                     ThrowCantCatch (..))
+                     ThrowCantCatch (..), try)
 import qualified Ouroboros.Storage.Util.ErrorHandling as EH
 import           Ouroboros.Storage.VolatileDB.API
 import           Ouroboros.Storage.VolatileDB.FileInfo (FileInfo)
@@ -276,30 +277,67 @@ reOpenDBImpl VolatileDBEnv{..} =
 
 data GetWhat = GetBlock | GetHeader
 
-getBlockImpl :: (IOLike m, Ord blockId)
+getBlockImpl :: forall m blockId.
+                (IOLike m, Ord blockId)
              => VolatileDBEnv m blockId
              -> GetWhat
              -> blockId
              -> m (Maybe (SlotNo, ByteString))
 getBlockImpl env@VolatileDBEnv{..} getWhat blockId =
-    withState env $ \hasFS@HasFS{..} InternalState{..} ->
+    wrapFsError (hasFsErr _dbHasFS) _dbErr $
+      withState env $ \hasFS@HasFS{..} InternalState{..} ->
+        case Map.lookup blockId _currentRevMap of
+          Nothing -> return Nothing
+          Just ibInfo@InternalBlockInfo {..} ->
+            case FileInfo.getHandle <$> Index.lookup ibFileId _currentMap of
+              Nothing ->
+                -- All files should be open.
+                throwError _dbErr $ UnexpectedError $ FileNotFound ibFile
+              Just hndl -> do
+                let (offset, size) = getReadPos ibInfo
+                eiBs <- try hasFsErr $ hGetExactlyAt hasFS hndl size offset
+                case eiBs of
+                  Left err | isHandleClosedError err -> caseFHandleClosed
+                  Left err -> throwError _dbErr $ fsToVolatileDBError err
+                  Right bs -> return $ Just (ibSlot, bs)
+  where
+    getReadPos InternalBlockInfo {..} = first AbsOffset $ case getWhat of
+      GetBlock ->
+        (ibSlotOffset, unBlockSize ibBlockSize)
+      GetHeader ->
+        (ibSlotOffset + fromIntegral ibHeaderOffset, fromIntegral ibHeaderSize)
+
+    -- | This case can occur if the file of the block is garbage collected,
+    -- while getting the block. We follow the same logic as before, but this
+    -- time while holding the lock, to verify why we got the FHandleClosed
+    -- error (it could indicate some internal violation instead).
+    --
+    -- Using @modifyState@ here doesn't hinder the performance, because this
+    -- case is very rare.
+    caseFHandleClosed :: m (Maybe (SlotNo, ByteString))
+    caseFHandleClosed = modifyState env $ \hasFS@HasFS{..} st@InternalState{..} ->
       case Map.lookup blockId _currentRevMap of
-        Nothing -> return Nothing
-        Just InternalBlockInfo {..} -> do
-          bs <- case FileInfo.getHandle <$> Index.lookup ibFileId _currentMap of
+        Nothing ->
+          -- We tried to get the block, but its handle is closed. After checking
+          -- for a second time, the block is not there at all. This means the
+          -- block was indeed garbage collected in the meantime.
+          return (st, Nothing)
+        Just ibInfo@InternalBlockInfo {..} ->
+          case FileInfo.getHandle <$> Index.lookup ibFileId _currentMap of
             Nothing ->
               -- All files should be open.
               throwError _dbErr $ UnexpectedError $ FileNotFound ibFile
             Just hndl -> do
-              let (offset, size) = case getWhat of
-                    GetBlock ->
-                      ( ibSlotOffset
-                      , unBlockSize ibBlockSize )
-                    GetHeader ->
-                      ( ibSlotOffset + fromIntegral ibHeaderOffset
-                      , fromIntegral ibHeaderSize )
-              hGetExactlyAt hasFS hndl size (AbsOffset offset)
-          return $ Just (ibSlot, bs)
+              -- After checking for a second time, the block is there again.
+              -- The only legit explanation is that the block was garbage
+              -- collected and reinserted. But this could also indicate an
+              -- internal violation, i.e. the handle was closed for some reason.
+              -- We try to get the block again, but this time with the lock and
+              -- without handling any errors. If it fails it fails, this time
+              -- for good.
+              let (offset, size) = getReadPos ibInfo
+              bs <- hGetExactlyAt hasFS hndl size offset
+              return (st, Just (ibSlot, bs))
 
 -- | This function follows the approach:
 -- (1) hPut bytes to the file
