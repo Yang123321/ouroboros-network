@@ -70,6 +70,7 @@ library
                        Ouroboros.Consensus.Ledger.Mock.State
                        Ouroboros.Consensus.Ledger.Mock.UTxO
                        Ouroboros.Consensus.Ledger.Shelley
+                       Ouroboros.Consensus.Ledger.Shelley.History
                        Ouroboros.Consensus.Mempool
                        Ouroboros.Consensus.Mempool.API
                        Ouroboros.Consensus.Mempool.Impl

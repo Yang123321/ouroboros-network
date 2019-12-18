@@ -17,6 +17,7 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 module Ouroboros.Consensus.Ledger.Shelley
   ()
@@ -28,7 +29,9 @@ import           BlockChain (BHBody (..), BHeader (..), Block (..), HashHeader,
 import           Cardano.Binary (ToCBOR (..))
 import           Cardano.Ledger.Shelley.API
 import           Cardano.Prelude (NoUnexpectedThunks (..))
-import           Control.Monad.Except (ExceptT (..), withExcept)
+import           Cardano.Slotting.Slot (WithOrigin (..), fromWithOrigin)
+import           Control.Arrow (left)
+import           Control.Monad.Except (ExceptT (..), runExcept, withExcept)
 import           Control.Monad.Identity (Identity (..))
 import           Data.Coerce (coerce)
 import           Data.Either (fromRight)
@@ -39,6 +42,8 @@ import           GHC.Generics (Generic)
 import qualified LedgerState as SL
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Ledger.Abstract
+import qualified Ouroboros.Consensus.Ledger.Shelley.History as History
+import           Ouroboros.Consensus.Protocol.Abstract (SecurityParam (..))
 import           Ouroboros.Consensus.Protocol.Signed
 import           Ouroboros.Consensus.Protocol.TPraos
 import           Ouroboros.Consensus.Util.Condense
@@ -131,6 +136,7 @@ instance UpdateLedger ShelleyBlock where
 
   data LedgerState ShelleyBlock = ShelleyLedgerState
     { ledgerTip :: Point ShelleyBlock
+    , history :: History.LedgerViewHistory
     , shelleyLedgerState :: SL.NewEpochState TPraosStandardCrypto
     } deriving (Eq, Show, Generic)
   type LedgerError ShelleyBlock = CombinedLedgerError
@@ -144,16 +150,28 @@ instance UpdateLedger ShelleyBlock where
       , SL.slotsPerKESPeriod = tpraosKESPeriod tpraosParams
       }
 
-  applyChainTick (ShelleyLedgerConfig globals) slotNo (ShelleyLedgerState pt bhState)
+  applyChainTick
+    (ShelleyLedgerConfig globals)
+    slotNo
+    (ShelleyLedgerState pt history bhState)
     = TickedLedgerState
-    . ShelleyLedgerState pt
+    . ShelleyLedgerState pt history
     $ applyTickTransition globals bhState slotNo
 
   applyLedgerBlock (ShelleyLedgerConfig globals)
-        (ShelleyBlock blk) (ShelleyLedgerState _ bhState)
-    = withExcept BBodyError
-        $ (ShelleyLedgerState newPt)
-        <$> applyBlockTransition globals bhState blk
+        sb@(ShelleyBlock blk) (ShelleyLedgerState _ history bhState)
+    = do
+        st' <- withExcept BBodyError $ applyBlockTransition globals bhState blk
+        let history' =
+              if currentLedgerView bhState == currentLedgerView st'
+              then history
+              else History.snapOld
+                    undefined
+                    (blockSlot sb)
+                    (currentLedgerView bhState)
+                    history
+
+        pure $! ShelleyLedgerState newPt history' st'
       where
         newPt
           = BlockPoint
@@ -185,4 +203,33 @@ instance HeaderSupportsTPraos TPraosStandardCrypto (Header ShelleyBlock) where
   headerToBHeader _ (ShelleyHeader hdr _hash) = hdr
 
 instance ProtocolLedgerView ShelleyBlock where
-  protocolLedgerView _cfg = undefined
+  protocolLedgerView _cfg (ShelleyLedgerState _ _ ls) = currentLedgerView ls
+
+  anachronisticProtocolLedgerView
+    cfg
+    (ShelleyLedgerState
+      (fromWithOrigin genesisSlotNo . pointSlot -> now)
+      history
+      st
+    )
+    woslot = case History.find woslot history of
+        Just lv -> Right lv
+        Nothing
+          | woslot <  At maxLo -> Left TooFarBehind -- lower bound is inclusive
+          | woslot >= At maxHi -> Left TooFarAhead  -- upper bound is exclusive
+          | otherwise        ->
+              left (const TooFarAhead) -- TODO maybe incorrect,
+                                       -- but we don't expect an error here
+                . runExcept
+                $ futureLedgerView globals st
+                    (fromWithOrigin genesisSlotNo woslot)
+      where
+        SecurityParam k = tpraosSecurityParam . tpraosParams $ cfg
+
+        ShelleyLedgerConfig globals = ledgerConfigView cfg
+
+        maxHi, maxLo :: SlotNo
+        maxLo = SlotNo $ if (2 * k) > unSlotNo now
+                          then 0
+                          else unSlotNo now - (2 * k)
+        maxHi = SlotNo $ unSlotNo now + (2 * k)
