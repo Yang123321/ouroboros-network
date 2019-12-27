@@ -38,6 +38,7 @@ module Ouroboros.Storage.ChainDB.Impl.LgrDB (
     -- * Validation
   , validate
   , ValidateResult
+  , NewBlockInMemory (..)
     -- * Garbage collect points of previously applied blocks
   , garbageCollectPrevApplied
     -- * Re-exports
@@ -354,15 +355,31 @@ getDiskPolicy LgrDB{ args = LgrDbArgs{..} } = lgrDiskPolicy
 type ValidateResult blk =
   LedgerDB.SwitchResult (ExtValidationError blk) (ExtLedgerState blk) (Point blk) 'False
 
+-- | When adding a block to the chain in
+-- 'Ouroboros.Storage.ChainDB.Impl.ChainSel.addBlock', the resulting chain has
+-- to be validated. To avoid reading the new block from disk and deserialising
+-- it while we still have it in memory, it can pass be to the validation
+-- functions directly in the form of this data type.
+--
+-- This removes a disk read from the critical path of adding a block that
+-- extends the current chain, improving bulk sync speed.
+--
+-- When performing validation in a context other than @addBlock@, use
+-- 'NoNewBlockInMemory'.
+data NewBlockInMemory blk
+  = NewBlockInMemory blk
+  | NoNewBlockInMemory
+
 validate :: forall m blk. (IOLike m, ProtocolLedgerView blk, HasCallStack)
          => LgrDB m blk
          -> LedgerDB blk
             -- ^ This is used as the starting point for validation, not the one
             -- in the 'LgrDB'.
+         -> NewBlockInMemory blk
          -> Word64  -- ^ How many blocks to roll back
          -> [Header blk]
          -> m (ValidateResult blk)
-validate LgrDB{..} ledgerDB numRollbacks = \hdrs -> do
+validate LgrDB{..} ledgerDB newBlockInMemory numRollbacks = \hdrs -> do
     blocks <- toBlocks hdrs <$> atomically (readTVar varPrevApplied)
     res <- LedgerDB.ledgerDbSwitch conf numRollbacks blocks ledgerDB
     atomically $ modifyTVar varPrevApplied $
@@ -374,7 +391,11 @@ validate LgrDB{..} ledgerDB numRollbacks = \hdrs -> do
     toBlocks hdrs prevApplied =
       [ ( if Set.member (headerPoint hdr) prevApplied
           then Reapply else Apply
-        , toRefOrVal (Left hdr) )
+        , toRefOrVal $ case newBlockInMemory of
+            NewBlockInMemory blk
+              | blockHash blk == headerHash hdr
+              -> Right blk
+            _ -> Left hdr )
       | hdr <- hdrs ]
 
     -- | Based on the 'ValidateResult', return the hashes corresponding to

@@ -64,7 +64,8 @@ import           Ouroboros.Consensus.Util.STM (WithFingerprint (..))
 import           Ouroboros.Storage.ChainDB.API (InvalidBlockReason (..))
 import           Ouroboros.Storage.ChainDB.Impl.ImmDB (ImmDB)
 import qualified Ouroboros.Storage.ChainDB.Impl.ImmDB as ImmDB
-import           Ouroboros.Storage.ChainDB.Impl.LgrDB (LgrDB)
+import           Ouroboros.Storage.ChainDB.Impl.LgrDB (LgrDB,
+                     NewBlockInMemory (..))
 import qualified Ouroboros.Storage.ChainDB.Impl.LgrDB as LgrDB
 import qualified Ouroboros.Storage.ChainDB.Impl.Query as Query
 import qualified Ouroboros.Storage.ChainDB.Impl.Reader as Reader
@@ -153,6 +154,7 @@ initialChainSelection immDB volDB lgrDB tracer cfg varInvalid curSlot = do
         (contramap (TraceInitChainSelEvent . InitChainSelValidation) tracer)
         cfg
         varInvalid
+        NoNewBlockInMemory
         curChainAndLedger
         (fmap (mkCandidateSuffix 0) candidates)
 
@@ -206,7 +208,7 @@ addBlock cdb@CDB{..} b = do
       | otherwise -> do
         VolDB.putBlock cdbVolDB b
         trace $ AddedBlockToVolDB (blockPoint b) (blockNo b) (toIsEBB (cdbIsEBB b))
-        chainSelectionForBlock cdb (getHeader b)
+        chainSelectionForBlock cdb (Right b)
   where
     trace :: TraceAddBlockEvent blk -> m ()
     trace = traceWith (contramap TraceAddBlockEvent cdbTracer)
@@ -265,9 +267,11 @@ chainSelectionForBlock
      , HasCallStack
      )
   => ChainDbEnv m blk
-  -> Header blk
+  -> Either (Header blk) blk
+     -- ^ @'Header' blk@ in case the block is no longer in memory, @blk@ in
+     -- case it still is.
   -> m ()
-chainSelectionForBlock cdb@CDB{..} hdr = do
+chainSelectionForBlock cdb@CDB{..} hdrOrBlk = do
     curSlot <- atomically $ getCurrentSlot cdbBlockchainTime
 
     (invalid, isMember, succsOf, predecessor, curChain, tipPoint, ledgerDB, immBlockNo)
@@ -327,6 +331,9 @@ chainSelectionForBlock cdb@CDB{..} hdr = do
     -- fragment) from the VolatileDB to the ImmutableDB.
   where
     secParam@(SecurityParam k) = protocolSecurityParam cdbNodeConfig
+
+    hdr :: Header blk
+    hdr = either id getHeader hdrOrBlk
 
     p :: Point blk
     p = headerPoint hdr
@@ -445,6 +452,7 @@ chainSelectionForBlock cdb@CDB{..} hdr = do
       (contramap (TraceAddBlockEvent . AddBlockValidation) cdbTracer)
       cdbNodeConfig
       cdbInvalid
+      (either (const NoNewBlockInMemory) NewBlockInMemory hdrOrBlk)
 
     -- | Try to swap the current (chain) fragment with the given candidate
     -- fragment. The 'LgrDB.LedgerDB' is updated in the same transaction.
@@ -608,13 +616,14 @@ chainSelection
   -> Tracer m (TraceValidationEvent blk)
   -> NodeConfig (BlockProtocol blk)
   -> StrictTVar m (WithFingerprint (InvalidBlocks blk))
+  -> NewBlockInMemory blk
   -> ChainAndLedger blk              -- ^ The current chain and ledger
   -> NonEmpty (CandidateSuffix blk)  -- ^ Candidates
   -> m (Maybe (ChainAndLedger blk))
      -- ^ The (valid) chain and corresponding LedgerDB that was selected, or
      -- 'Nothing' if there is no valid chain preferred over the current
      -- chain.
-chainSelection lgrDB tracer cfg varInvalid
+chainSelection lgrDB tracer cfg varInvalid newBlockInMemory
                curChainAndLedger@(ChainAndLedger curChain _) candidates =
   assert (all (preferAnchoredCandidate cfg curChain . _suffix) candidates) $
   assert (all (isJust . fitCandidateSuffixOn curChain) candidates) $
@@ -627,7 +636,7 @@ chainSelection lgrDB tracer cfg varInvalid
     validate :: ChainAndLedger  blk  -- ^ Current chain and ledger
              -> CandidateSuffix blk  -- ^ Candidate fragment
              -> m (Maybe (ChainAndLedger blk))
-    validate = validateCandidate lgrDB tracer cfg varInvalid
+    validate = validateCandidate lgrDB tracer cfg varInvalid newBlockInMemory
 
     -- 1. Take the first candidate from the list of sorted candidates
     -- 2. Validate it
@@ -719,12 +728,13 @@ validateCandidate
   -> Tracer m (TraceValidationEvent blk)
   -> NodeConfig (BlockProtocol blk)
   -> StrictTVar m (WithFingerprint (InvalidBlocks blk))
+  -> NewBlockInMemory blk
   -> ChainAndLedger  blk                   -- ^ Current chain and ledger
   -> CandidateSuffix blk                   -- ^ Candidate fragment
   -> m (Maybe (ChainAndLedger blk))
-validateCandidate lgrDB tracer cfg varInvalid
+validateCandidate lgrDB tracer cfg varInvalid newBlockInMemory
                   (ChainAndLedger curChain curLedger) candSuffix =
-    LgrDB.validate lgrDB curLedger rollback newBlocks >>= \case
+    LgrDB.validate lgrDB curLedger newBlockInMemory rollback newBlocks >>= \case
       LgrDB.MaximumRollbackExceeded supported _ -> do
         trace $ CandidateExceedsRollback {
             _supportedRollback = supported
