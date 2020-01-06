@@ -44,6 +44,7 @@
         cardano-ledger-test = ./cardano-ledger-test.nix;
         cardano-crypto-wrapper = ./cardano-crypto-wrapper.nix;
         cardano-crypto-test = ./cardano-crypto-test.nix;
+        cs-blockchain = ./cs-blockchain.nix;
         cs-ledger = ./cs-ledger.nix;
         small-steps = ./small-steps.nix;
         non-integer = ./non-integer.nix;

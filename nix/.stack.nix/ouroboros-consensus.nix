@@ -32,6 +32,7 @@
           (hsPkgs.cardano-crypto-class)
           (hsPkgs.cardano-crypto-wrapper)
           (hsPkgs.cardano-ledger)
+          (hsPkgs.cardano-slotting)
           (hsPkgs.delegation)
           (hsPkgs.cardano-prelude)
           (hsPkgs.cardano-slotting)

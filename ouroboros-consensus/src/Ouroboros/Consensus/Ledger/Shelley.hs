@@ -166,7 +166,7 @@ instance UpdateLedger ShelleyBlock where
               if currentLedgerView bhState == currentLedgerView st'
               then history
               else History.snapOld
-                    undefined
+                    undefined -- TODO security parameter
                     (blockSlot sb)
                     (currentLedgerView bhState)
                     history
