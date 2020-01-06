@@ -14,7 +14,6 @@
 {-# LANGUAGE TypeFamilies            #-}
 {-# LANGUAGE UndecidableInstances    #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# LANGUAGE ViewPatterns            #-}
 
 -- | Transitional Praos.
 --
@@ -270,11 +269,14 @@ instance TPraosCrypto c => OuroborosTag (TPraos c) where
 
   applyChainState TPraosNodeConfig{..} lv b cs = do
     let slot = blockSlot b
-        SecurityParam (fromIntegral -> k) = tpraosSecurityParam tpraosParams
+        SecurityParam k = tpraosSecurityParam tpraosParams
         shelleyGlobs = Globals
           { epochInfo = tpraosEpochInfo tpraosParams
           , slotsPerKESPeriod = tpraosKESPeriod tpraosParams
-          }
+          , securityParameter = k
+          , startRewards = 3 * k
+          , slotsPrior = 3 * k
+            }
 
     newCS <- ExceptT . return . runIdentity . flip runReaderT shelleyGlobs $ applySTS @(STS.PRTCL c)
       $ TRC ( Shelley.mkPrtclEnv
@@ -285,7 +287,7 @@ instance TPraosCrypto c => OuroborosTag (TPraos c) where
             , headerToBHeader (Proxy :: Proxy (TPraos c)) b
             )
 
-    return . ChainState.prune k $ ChainState.appendState newCS cs
+    return . ChainState.prune (fromIntegral k) $ ChainState.appendState newCS cs
 
   -- Rewind the chain state
   --

@@ -148,7 +148,12 @@ instance UpdateLedger ShelleyBlock where
     ShelleyLedgerConfig $ SL.Globals
       { SL.epochInfo = tpraosEpochInfo tpraosParams
       , SL.slotsPerKESPeriod = tpraosKESPeriod tpraosParams
+      , SL.securityParameter = sp
+      , SL.startRewards = 3 * sp
+      , SL.slotsPrior = 3 * sp
       }
+      where
+        SecurityParam sp = tpraosSecurityParam tpraosParams
 
   applyChainTick
     (ShelleyLedgerConfig globals)
@@ -166,7 +171,7 @@ instance UpdateLedger ShelleyBlock where
               if currentLedgerView bhState == currentLedgerView st'
               then history
               else History.snapOld
-                    undefined -- TODO security parameter
+                    (SL.securityParameter globals)
                     (blockSlot sb)
                     (currentLedgerView bhState)
                     history
