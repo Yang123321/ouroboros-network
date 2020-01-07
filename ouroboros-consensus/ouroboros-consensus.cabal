@@ -56,6 +56,7 @@ library
                        Ouroboros.Consensus.Ledger.Byron.Mempool
                        Ouroboros.Consensus.Ledger.Byron.Orphans
                        Ouroboros.Consensus.Ledger.Byron.PBFT
+                       Ouroboros.Consensus.Ledger.ByronDual
                        Ouroboros.Consensus.Ledger.Extended
                        Ouroboros.Consensus.Ledger.Mock
                        Ouroboros.Consensus.Ledger.Mock.Address
@@ -86,6 +87,7 @@ library
                        Ouroboros.Consensus.Node.Run
                        Ouroboros.Consensus.Node.Run.Abstract
                        Ouroboros.Consensus.Node.Run.Byron
+                       Ouroboros.Consensus.Node.Run.ByronDual
                        Ouroboros.Consensus.Node.Run.Mock
                        Ouroboros.Consensus.Node.Tracers
                        Ouroboros.Consensus.NodeId
@@ -231,6 +233,8 @@ library
                        cborg             >=0.2.2 && <0.3,
                        containers        >=0.5   && <0.7,
                        cryptonite        >=0.25  && <0.26,
+                       cs-blockchain,
+                       cs-ledger,
                        deepseq,
                        digest,
                        directory         >=1.3   && <1.4,
@@ -245,6 +249,7 @@ library
                        network,
                        psqueues          >=0.2.3 && <0.3,
                        serialise         >=0.2   && <0.3,
+                       small-steps,
                        stm,
                        streaming,
                        text              >=1.2   && <1.3,

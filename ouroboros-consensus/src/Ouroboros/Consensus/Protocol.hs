@@ -8,6 +8,7 @@ module Ouroboros.Consensus.Protocol (
   , ProtocolLeaderSchedule
   , ProtocolMockPBFT
   , ProtocolRealPBFT
+  , ProtocolDualPBFT
     -- * Abstract over the various protocols
   , Protocol(..)
     -- * Evidence that we can run all the supported protocols
@@ -20,6 +21,7 @@ import qualified Cardano.Chain.Update as Update
 
 import           Ouroboros.Consensus.BlockchainTime
 import           Ouroboros.Consensus.Ledger.Byron
+import           Ouroboros.Consensus.Ledger.ByronDual
 import           Ouroboros.Consensus.Ledger.Mock
 import           Ouroboros.Consensus.Node.ProtocolInfo.Abstract (NumCoreNodes)
 import           Ouroboros.Consensus.Node.ProtocolInfo.Byron
@@ -43,6 +45,7 @@ type ProtocolMockPraos      = Praos AddrDist PraosMockCrypto
 type ProtocolLeaderSchedule = WithLeaderSchedule (Praos () PraosCryptoUnused)
 type ProtocolMockPBFT       = PBft (PBftLedgerView PBftMockCrypto) PBftMockCrypto
 type ProtocolRealPBFT       = PBft ByronConfig PBftCardanoCrypto
+type ProtocolDualPBFT       = PBft DualByronConfig PBftCardanoCrypto
 
 {-------------------------------------------------------------------------------
   Abstract over the various protocols
@@ -89,6 +92,15 @@ data Protocol blk where
     -> Maybe PBftLeaderCredentials
     -> Protocol ByronBlock
 
+  -- | Run PBFT with the combination of the abstract and real ledgers
+  ProtocolDualPBFT
+    :: Genesis.Config
+    -> Maybe PBftSignatureThreshold
+    -> Update.ProtocolVersion
+    -> Update.SoftwareVersion
+    -> Maybe PBftLeaderCredentials
+    -> Protocol DualByronBlock
+
 {-------------------------------------------------------------------------------
   Evidence that we can run all the supported protocols
 -------------------------------------------------------------------------------}
@@ -99,3 +111,4 @@ runProtocol ProtocolMockPraos{}      = Dict
 runProtocol ProtocolLeaderSchedule{} = Dict
 runProtocol ProtocolMockPBFT{}       = Dict
 runProtocol ProtocolRealPBFT{}       = Dict
+runProtocol ProtocolDualPBFT{}       = Dict

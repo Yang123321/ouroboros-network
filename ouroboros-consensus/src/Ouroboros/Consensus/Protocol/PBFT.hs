@@ -24,6 +24,7 @@ module Ouroboros.Consensus.Protocol.PBFT (
   , forgePBftFields
   , genesisKeyCoreNodeId
   , pbftWindowSize
+  , mapPBftExtConfig
     -- * Classes
   , PBftCrypto(..)
   , PBftMockCrypto
@@ -210,6 +211,15 @@ data instance NodeConfig (PBft cfg c) = PBftNodeConfig {
     , pbftExtConfig :: !cfg
     }
   deriving (Generic, NoUnexpectedThunks)
+
+mapPBftExtConfig :: (cfg -> cfg')
+                 -> NodeConfig (PBft cfg  c)
+                 -> NodeConfig (PBft cfg' c)
+mapPBftExtConfig f PBftNodeConfig{..} = PBftNodeConfig{
+      pbftParams    =   pbftParams
+    , pbftIsLeader  =   pbftIsLeader
+    , pbftExtConfig = f pbftExtConfig
+    }
 
 instance ( PBftCrypto c
          , Typeable c
