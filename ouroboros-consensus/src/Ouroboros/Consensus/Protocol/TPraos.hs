@@ -77,12 +77,14 @@ import qualified Cardano.Ledger.Shelley.API as Shelley
 
 data TPraosFields c toSign = TPraosFields
   { tpraosSignature :: SignedKES (KES c) toSign
-  , tpraosToSign    :: TPraosToSign c
+  , tpraosToSign    :: toSign
   }
   deriving Generic
 
-instance TPraosCrypto c => NoUnexpectedThunks (TPraosFields c toSign)
-deriving instance TPraosCrypto c => Show (TPraosFields c toSign)
+instance (NoUnexpectedThunks toSign, TPraosCrypto c)
+  => NoUnexpectedThunks (TPraosFields c toSign)
+deriving instance (Show toSign, TPraosCrypto c)
+  => Show (TPraosFields c toSign)
 
 -- | Fields arising from transitional praos execution which must be included in
 -- the block signature.
@@ -92,7 +94,7 @@ data TPraosToSign c = TPraosToSign
     --   issuing this block, this key corresponds to the stake pool/core node
     --   actually forging the block.
     tptsIssuerVK :: VerKeyDSIGN (DSIGN c)
-  , tptsVrfVk    :: VerKeyVRF (VRF c)
+  , tptsVrfVK    :: VerKeyVRF (VRF c)
     -- | Verifiable result containing the updated nonce value.
   , tptsEta      :: CertifiedVRF (VRF c) Nonce
     -- | Verifiable proof of the leader value, used to determine whether the
@@ -138,7 +140,7 @@ forgeTPraosFields TPraosNodeConfig{..}  TPraosProof{..} mkToSign = do
         (DiscVKey issuerVK) = ocertVkCold tpraosIsCoreNodeOpCert
         signedFields = TPraosToSign {
           tptsIssuerVK = issuerVK
-        , tptsVrfVk = deriveVerKeyVRF tpraosSignKeyVRF
+        , tptsVrfVK = deriveVerKeyVRF tpraosSignKeyVRF
         , tptsEta = tpraosEta
         , tptsLeader = tpraosLeader
         , tptsOCert = tpraosIsCoreNodeOpCert
@@ -154,7 +156,7 @@ forgeTPraosFields TPraosNodeConfig{..}  TPraosProof{..} mkToSign = do
         putNodeState . Just $ icn { tpraosIsCoreNodeSKSHot = newKey }
         return $ TPraosFields {
             tpraosSignature    = signature
-          , tpraosToSign       = signedFields
+          , tpraosToSign       = (mkToSign signedFields)
           }
 
 {-------------------------------------------------------------------------------
@@ -337,4 +339,4 @@ prtclEta0 (STS.PrtclState _ _ _ eta0 _ _ _) = eta0
 instance (Condense c, Condense toSign, TPraosCrypto c)
   => Condense (TPraosFields c toSign) where
   -- TODO Nicer 'Condense' instance
-  condense = show
+  condense = condense . tpraosToSign
