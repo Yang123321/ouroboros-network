@@ -15,7 +15,8 @@ import           Cardano.Slotting.Slot
 import           Crypto.Random (MonadRandom)
 import           Data.Sequence (Seq)
 import           Keys (KESig (..), pattern VKey)
-import           Ouroboros.Consensus.Ledger.Shelley
+import           Ouroboros.Consensus.Ledger.Shelley.Block
+import           Ouroboros.Consensus.Ledger.Shelley.Config
 import           Ouroboros.Consensus.Ledger.Shelley.Mempool
 import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Protocol.TPraos

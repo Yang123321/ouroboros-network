@@ -21,7 +21,8 @@ import           Data.Either (fromRight)
 import qualified Data.Sequence as Seq
 import           GHC.Generics (Generic)
 import           Ouroboros.Consensus.Ledger.Abstract
-import           Ouroboros.Consensus.Ledger.Shelley
+import           Ouroboros.Consensus.Ledger.Shelley.Block
+import           Ouroboros.Consensus.Ledger.Shelley.Ledger
 import           Ouroboros.Consensus.Mempool.API
 import           Ouroboros.Consensus.Protocol.TPraos
 import           Ouroboros.Consensus.Util.Condense
