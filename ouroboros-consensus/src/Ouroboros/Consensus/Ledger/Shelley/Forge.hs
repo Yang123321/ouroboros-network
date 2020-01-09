@@ -21,10 +21,10 @@ import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Protocol.TPraos
 
 forgeShelleyBlock ::
-  ( HasNodeState (TPraos TPraosStandardCrypto) m,
+  ( HasNodeState (TPraos ShelleyNodeConfig TPraosStandardCrypto) m,
     MonadRandom m
   ) =>
-  NodeConfig (TPraos TPraosStandardCrypto) ->
+  NodeConfig (TPraos ShelleyNodeConfig TPraosStandardCrypto) ->
   SlotNo ->
   BlockNo ->
   ShelleyHash ->
@@ -56,5 +56,5 @@ forgeShelleyBlock cfg slotNo blockNo prevHash txs isLeader = do
             bsize = 20000, -- TODO
             bhash = bbHash body,
             bheaderOCert = tptsOCert,
-            bprotvert = undefined
+            bprotvert = sncProtocolVersion $ tpraosExtraConfig cfg
           }

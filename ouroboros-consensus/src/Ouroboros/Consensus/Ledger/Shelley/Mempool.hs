@@ -46,7 +46,7 @@ instance ApplyTx ShelleyBlock where
 
   txId (ShelleyTx i _) = ShelleyTxId i
 
-  txSize (ShelleyTx _ tx) = undefined
+  txSize (ShelleyTx _ _tx) = 2000 -- TODO
 
   txInvariant = const True
 

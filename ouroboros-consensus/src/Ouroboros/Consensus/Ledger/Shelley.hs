@@ -20,6 +20,7 @@
 module Ouroboros.Consensus.Ledger.Shelley
   ( ShelleyBlock(..)
   , ShelleyHash(..)
+  , ShelleyNodeConfig(..)
   , UpdateLedger(..)
   , LedgerConfig(..)
   , LedgerState(..)
@@ -27,9 +28,9 @@ module Ouroboros.Consensus.Ledger.Shelley
 where
 
 import qualified BaseTypes as SL
-import           BlockChain (BHBody (..), BHeader (..), Block (..), HashHeader,
+import           BlockChain (ProtVer, BHBody (..), BHeader (..), Block (..), HashHeader,
                      bhHash, bhbody, bheader)
-import           Cardano.Binary (ToCBOR (..))
+import           Cardano.Binary (ToCBOR (..), FromCBOR(..))
 import           Cardano.Ledger.Shelley.API
 import           Cardano.Prelude (NoUnexpectedThunks (..))
 import           Cardano.Slotting.Slot (WithOrigin (..), fromWithOrigin)
@@ -58,7 +59,7 @@ import           Ouroboros.Network.Block
 
 newtype ShelleyHash = ShelleyHash { unShelleyHash :: HashHeader TPraosStandardCrypto }
   deriving stock   (Eq, Ord, Show, Generic)
-  deriving newtype (ToCBOR) -- TODO , FromCBOR)
+  deriving newtype (ToCBOR, FromCBOR)
   deriving anyclass NoUnexpectedThunks
 
 instance Condense ShelleyHash where
@@ -122,6 +123,15 @@ instance Measured BlockMeasure ShelleyBlock where
   measure = blockMeasure
 
 instance StandardHash ShelleyBlock
+
+{-------------------------------------------------------------------------------
+  Additional node configuration
+-------------------------------------------------------------------------------}
+
+data ShelleyNodeConfig = ShelleyNodeConfig
+  { sncProtocolVersion :: ProtVer }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass NoUnexpectedThunks
 
 {-------------------------------------------------------------------------------
   Ledger
@@ -201,7 +211,7 @@ instance NoUnexpectedThunks (LedgerState ShelleyBlock)
 -------------------------------------------------------------------------------}
 
 type instance BlockProtocol ShelleyBlock
-  = TPraos TPraosStandardCrypto
+  = TPraos ShelleyNodeConfig TPraosStandardCrypto
 
 instance SignedHeader (Header ShelleyBlock) where
   type Signed (Header ShelleyBlock) = BHBody TPraosStandardCrypto

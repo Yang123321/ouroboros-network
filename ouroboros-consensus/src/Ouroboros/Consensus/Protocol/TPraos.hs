@@ -42,6 +42,7 @@ import           Cardano.Crypto.DSIGN.Class (VerKeyDSIGN)
 import           Cardano.Crypto.Hash.Class (HashAlgorithm (..))
 import           Cardano.Crypto.KES.Class
 import           Cardano.Crypto.VRF.Class
+import qualified Cardano.Ledger.Shelley.API as Shelley
 import           Cardano.Prelude (NoUnexpectedThunks (..))
 import           Cardano.Slotting.EpochInfo
 import           Control.Monad.Except (ExceptT (..))
@@ -52,11 +53,11 @@ import           Data.Coerce (coerce)
 import           Data.Functor.Identity (Identity (runIdentity))
 import qualified Data.Map.Strict as Map
 import           Data.Proxy (Proxy (..))
+import           Data.Typeable (Typeable)
 import           Data.Word (Word64)
 import           Delegation.Certificates (PoolDistr (..))
 import           GHC.Generics (Generic)
-import           Keys (DiscVKey (..), GenDelegs (..), KeyHash,
-                     hashKey)
+import           Keys (DiscVKey (..), GenDelegs (..), KeyHash, hashKey)
 import           OCert (OCert (..))
 import           Ouroboros.Consensus.BlockchainTime (SlotLength,
                      singletonSlotLengths)
@@ -69,7 +70,6 @@ import           Ouroboros.Consensus.Util.Condense
 import           Ouroboros.Network.Block (HasHeader (..), SlotNo (..),
                      pointSlot)
 import qualified STS.Prtcl as STS
-import qualified Cardano.Ledger.Shelley.API as Shelley
 
 {-------------------------------------------------------------------------------
   Fields required by TPraos in the header
@@ -126,12 +126,12 @@ class ( HasHeader hdr
     -> hdr
     -> BHeader c
 
-forgeTPraosFields :: ( HasNodeState (TPraos c) m
+forgeTPraosFields :: ( HasNodeState (TPraos cfg c) m
                     , MonadRandom m
                     , TPraosCrypto c
                     , Cardano.Crypto.KES.Class.Signable (KES c) toSign
                     )
-                 => NodeConfig (TPraos c)
+                 => NodeConfig (TPraos cfg c)
                  -> TPraosProof c
                  -> (TPraosToSign c -> toSign)
                  -> m (TPraosFields c toSign)
@@ -179,7 +179,7 @@ instance TPraosCrypto c => NoUnexpectedThunks (TPraosProof c)
   Protocol proper
 -------------------------------------------------------------------------------}
 
-data TPraos c
+data TPraos cfg c
 
 -- | TPraos parameters that are node independent
 data TPraosParams = TPraosParams {
@@ -208,18 +208,22 @@ instance
   ( Crypto c
   ) => NoUnexpectedThunks (TPraosIsCoreNode c)
 
-instance TPraosCrypto c => OuroborosTag (TPraos c) where
+instance
+  ( NoUnexpectedThunks cfg
+  , Typeable cfg
+  , TPraosCrypto c)
+  => OuroborosTag (TPraos cfg c) where
 
   protocolSecurityParam = tpraosSecurityParam . tpraosParams
   protocolSlotLengths   = singletonSlotLengths  .tpraosSlotLength . tpraosParams
 
-  type NodeState       (TPraos c) = Maybe (TPraosIsCoreNode c)
-  type LedgerView      (TPraos c) = Shelley.LedgerView c
-  type IsLeader        (TPraos c) = TPraosProof c
-  type CanSelect       (TPraos c) = HasHeader
-  type CanValidate     (TPraos c) = HeaderSupportsTPraos c
-  type ValidationErr   (TPraos c) = [[STS.PredicateFailure (STS.PRTCL c)]]
-  type ChainState      (TPraos c) = ChainState.TPraosChainState c
+  type NodeState       (TPraos cfg c) = Maybe (TPraosIsCoreNode c)
+  type LedgerView      (TPraos cfg c) = Shelley.LedgerView c
+  type IsLeader        (TPraos cfg c) = TPraosProof c
+  type CanSelect       (TPraos cfg c) = HasHeader
+  type CanValidate     (TPraos cfg c) = HeaderSupportsTPraos c
+  type ValidationErr   (TPraos cfg c) = [[STS.PredicateFailure (STS.PRTCL c)]]
+  type ChainState      (TPraos cfg c) = ChainState.TPraosChainState c
 
   checkIsLeader cfg@TPraosNodeConfig{..} slot lv cs =
     getNodeState >>= \case
@@ -299,22 +303,23 @@ instance TPraosCrypto c => OuroborosTag (TPraos c) where
     = ChainState.rewind (pointSlot rewindTo) cs
 
 -- Use generic instance
-instance (VRFAlgorithm (VRF c)) => NoUnexpectedThunks (NodeConfig (TPraos c))
+instance (NoUnexpectedThunks cfg, VRFAlgorithm (VRF c)) => NoUnexpectedThunks (NodeConfig (TPraos cfg c))
 
-data instance NodeConfig (TPraos c) = TPraosNodeConfig
+data instance NodeConfig (TPraos cfg c) = TPraosNodeConfig
   { tpraosParams        :: TPraosParams
   , tpraosSignKeyVRF    :: SignKeyVRF (VRF c)
+  , tpraosExtraConfig   :: cfg
   } deriving Generic
 
 
-phi :: NodeConfig (TPraos c) -> Rational -> Double
+phi :: NodeConfig (TPraos cfg c) -> Rational -> Double
 phi TPraosNodeConfig{..} r = 1 - (1 - tpraosLeaderF) ** fromRational r
   where
     TPraosParams{..} = tpraosParams
 
-leaderThreshold :: forall c. TPraosCrypto c
-                => NodeConfig (TPraos c)
-                -> LedgerView (TPraos c)
+leaderThreshold :: forall cfg c. TPraosCrypto c
+                => NodeConfig (TPraos cfg c)
+                -> LedgerView (TPraos cfg c)
                 -> KeyHash c -- ^ Key hash of the pool
                 -> Double
 leaderThreshold nc lv kh =
