@@ -29,7 +29,6 @@ import           Control.Monad.Class.MonadSTM.Strict
 import           Control.Monad.Class.MonadThrow
 import           Control.Tracer
 import           Data.Array
-import           Data.Int (Int64)
 import qualified Data.ByteString.Lazy as BL
 import           Data.Int (Int64)
 import           Data.List (lookup)
