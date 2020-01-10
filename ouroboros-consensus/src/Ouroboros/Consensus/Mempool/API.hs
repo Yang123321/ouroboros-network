@@ -217,6 +217,9 @@ data Mempool m blk idx = Mempool {
       -- | Represents the initial value at which the transaction ticket number
       -- counter will start (i.e. the zeroth ticket number).
     , zeroIdx       :: idx
+
+      -- | A handle to kill the mempool's background threads.
+    , stopBGThreads :: m ()
     }
 
 -- | The slot of the block in which the transactions in the mempool will end up

@@ -18,7 +18,6 @@ module Ouroboros.Consensus.Mempool.Impl (
   ) where
 
 import           Control.Exception (assert)
-import           Control.Monad (void)
 import           Control.Monad.Except
 import qualified Data.Foldable as Foldable
 import qualified Data.Set as Set
@@ -61,8 +60,8 @@ openMempool :: (IOLike m, ApplyTx blk)
             -> m (Mempool m blk TicketNo)
 openMempool registry ledger cfg capacity tracer = do
     env <- initMempoolEnv ledger cfg capacity tracer
-    forkSyncStateOnTipPointChange registry env
-    return $ mkMempool env
+    stop <- forkSyncStateOnTipPointChange registry env
+    return $ mkMempool stop env
 
 -- | Unlike 'openMempool', this function does not fork a background thread
 -- that synchronises with the ledger state whenever the later changes.
@@ -76,17 +75,18 @@ openMempoolWithoutSyncThread
   -> Tracer m (TraceEventMempool blk)
   -> m (Mempool m blk TicketNo)
 openMempoolWithoutSyncThread ledger cfg capacity tracer =
-    mkMempool <$> initMempoolEnv ledger cfg capacity tracer
+    mkMempool (pure ()) <$> initMempoolEnv ledger cfg capacity tracer
 
 mkMempool :: (IOLike m, ApplyTx blk)
-          => MempoolEnv m blk -> Mempool m blk TicketNo
-mkMempool env = Mempool
+          => m () -> MempoolEnv m blk -> Mempool m blk TicketNo
+mkMempool stop env = Mempool
     { addTxs         = implAddTxs         env []
     , removeTxs      = implRemoveTxs      env
     , syncWithLedger = implSyncWithLedger env
     , getSnapshot    = implGetSnapshot    env
     , getSnapshotFor = implGetSnapshotFor env
     , zeroIdx        = zeroTicketNo
+    , stopBGThreads = stop
     }
 
 -- | Abstract interface needed to run a Mempool.
@@ -158,12 +158,14 @@ initMempoolEnv ledgerInterface cfg capacity tracer = do
 
 -- | Spawn a thread which syncs the 'Mempool' state whenever the 'LedgerState'
 -- changes.
+--
+-- Returns a handle to kill the thread.
 forkSyncStateOnTipPointChange :: forall m blk. (IOLike m, ApplyTx blk)
                               => ResourceRegistry m
                               -> MempoolEnv m blk
-                              -> m ()
+                              -> m (m ())
 forkSyncStateOnTipPointChange registry menv =
-    void $ onEachChange registry id Nothing getCurrentTip action
+    fmap cancelThread $ onEachChange registry id Nothing getCurrentTip action
   where
     action :: Point blk -> m ()
     action _tipPoint = void $ implSyncWithLedger menv
