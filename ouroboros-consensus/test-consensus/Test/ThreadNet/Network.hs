@@ -780,7 +780,7 @@ getTestOutput nodes = do
               , nodeOutputNodeDBs    = nodeInfoDBs
               , nodeOutputForges     =
                   Map.fromList $
-                  [ (s, b) | TraceForgeEvent s b <- nodeEventsForges ]
+                  [ (s, b) | TraceForgeEvent s b _ <- nodeEventsForges ]
               , nodeOutputInvalids   = Set.fromList nodeEventsInvalids
               }
 

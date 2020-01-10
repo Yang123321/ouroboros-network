@@ -297,6 +297,7 @@ initBlockFetchConsensusInterface cfg chainDB getCandidates blockFetchSize
                            -> Ordering
     compareCandidateChains = compareAnchoredCandidates cfg
 
+
 forkBlockProduction
     :: forall m peer blk.
        (IOLike m, RunNode blk)
@@ -373,7 +374,7 @@ forkBlockProduction maxBlockSizeOverride IS{..} BlockProduction{..} =
               prevNo
               txs
 
-          trace $ TraceForgeEvent currentSlot newBlock
+          trace $ TraceForgeEvent currentSlot newBlock (snapshotMempoolSize mempoolSnapshot)
           -- Adding a block is synchronous
           ChainDB.addBlock chainDB newBlock
           -- Check whether we adopted our block

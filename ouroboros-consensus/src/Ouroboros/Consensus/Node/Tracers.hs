@@ -29,7 +29,7 @@ import           Ouroboros.Consensus.ChainSyncServer (TraceChainSyncServerEvent)
 import           Ouroboros.Consensus.Ledger.Abstract (AnachronyFailure,
                      ProtocolLedgerView)
 import           Ouroboros.Consensus.Mempool.API (ApplyTxErr, GenTx, GenTxId,
-                     TraceEventMempool)
+                     TraceEventMempool, MempoolSize)
 import           Ouroboros.Consensus.TxSubmission
                      (TraceLocalTxSubmissionServerEvent (..))
 
@@ -106,8 +106,9 @@ data TraceForgeEvent blk tx
   -- current DB.
   = TraceForgeAboutToLead SlotNo
 
-  -- | The forged block and at which slot it was forged.
-  | TraceForgeEvent SlotNo blk
+  -- | The forged block and at which slot it was forged with the information of
+  -- the mempool size at the moment before the forge event.
+  | TraceForgeEvent SlotNo blk !MempoolSize
 
   -- | We should have produced a block, but didn't, due to too many missing
   -- blocks between the tip of our chain and the current slot
