@@ -8,6 +8,7 @@
 {-# LANGUAGE GADTSyntax                 #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
@@ -17,30 +18,59 @@
 module Ouroboros.Consensus.Ledger.Shelley.Block where
 
 import           BlockChain (BHBody (..), BHeader (..), Block (..), HashHeader,
-                     bhHash, bhbody, bheader)
+                     HashHeader (..), bhHash, bhbody, bheader)
 import           Cardano.Binary (FromCBOR (..), ToCBOR (..))
+import qualified Cardano.Crypto.Hash as Crypto
 import           Cardano.Prelude (NoUnexpectedThunks (..))
+import           Codec.Serialise (Serialise(..))
+import           Data.Binary (Get, Put)
+import qualified Data.Binary.Get as Get
+import qualified Data.Binary.Put as Put
 import           Data.Coerce (coerce)
 import           Data.FingerTree.Strict (Measured (..))
 import           Data.Proxy (Proxy (..))
 import           Data.Typeable (typeRep)
+import           Data.Word (Word32)
 import           GHC.Generics (Generic)
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Protocol.TPraos
+import           Ouroboros.Consensus.Protocol.TPraos.Crypto (HASH)
 import           Ouroboros.Consensus.Util.Condense
 import           Ouroboros.Network.Block
+import           Ouroboros.Storage.ImmutableDB (BinaryInfo (..), HashInfo (..))
 
 {-------------------------------------------------------------------------------
   Header hash
 -------------------------------------------------------------------------------}
 
-newtype ShelleyHash = ShelleyHash { unShelleyHash :: HashHeader TPraosStandardCrypto }
+newtype ShelleyHash = ShelleyHash
+  { unShelleyHash :: HashHeader TPraosStandardCrypto }
   deriving stock   (Eq, Ord, Show, Generic)
   deriving newtype (ToCBOR, FromCBOR)
   deriving anyclass NoUnexpectedThunks
 
+instance Serialise ShelleyHash where
+  encode = toCBOR
+  decode = fromCBOR
+
 instance Condense ShelleyHash where
   condense = show . unShelleyHash
+
+shelleyHashInfo :: HashInfo ShelleyHash
+shelleyHashInfo = HashInfo { hashSize, getHash, putHash }
+  where
+    hashSize :: Word32
+    hashSize = fromIntegral
+      $ Crypto.byteCount (Proxy :: Proxy (HASH TPraosStandardCrypto))
+
+    getHash :: Get ShelleyHash
+    getHash = do
+      bytes <- Get.getByteString (fromIntegral hashSize)
+      return . ShelleyHash . HashHeader $ Crypto.UnsafeHash bytes
+
+    putHash :: ShelleyHash -> Put
+    putHash (ShelleyHash (HashHeader h)) =
+      Put.putByteString $ Crypto.getHash h
 
 {-------------------------------------------------------------------------------
   Shelley blocks and headers
@@ -55,6 +85,7 @@ newtype ShelleyBlock = ShelleyBlock
   { unShelleyBlock :: Block TPraosStandardCrypto
   }
   deriving (Eq, Show)
+  deriving newtype (ToCBOR, FromCBOR)
 
 instance GetHeader ShelleyBlock where
   data Header ShelleyBlock = ShelleyHeader
@@ -67,6 +98,9 @@ instance GetHeader ShelleyBlock where
     { shelleyHeader     = bheader b
     , shelleyHeaderHash = ShelleyHash . bhHash . bheader $ b
     }
+
+instance ToCBOR (Header ShelleyBlock)
+instance FromCBOR (Header ShelleyBlock)
 
 instance NoUnexpectedThunks (Header ShelleyBlock) where
   showTypeOf _ = show $ typeRep (Proxy @(Header ShelleyBlock ))

@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE DerivingVia       #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -13,6 +14,7 @@ module Ouroboros.Consensus.Ledger.Shelley.Mempool
   )
 where
 
+import           Cardano.Binary (FromCBOR (..), ToCBOR (..))
 import           Cardano.Ledger.Shelley.API
 import           Cardano.Prelude (NoUnexpectedThunks (..), UseIsNormalForm (..))
 import           Cardano.Slotting.Slot
@@ -39,9 +41,10 @@ instance ApplyTx ShelleyBlock where
     deriving (Eq, Generic)
     deriving (NoUnexpectedThunks) via UseIsNormalForm (GenTx ShelleyBlock)
 
-  data GenTxId ShelleyBlock
-    = ShelleyTxId !TxId
+  newtype GenTxId ShelleyBlock
+    = ShelleyTxId TxId
     deriving (Eq, Ord)
+    deriving newtype (FromCBOR, ToCBOR)
 
   type ApplyTxErr ShelleyBlock = ApplyTxError TPraosStandardCrypto
 
@@ -75,6 +78,9 @@ instance ApplyTx ShelleyBlock where
       $ applyTx cfg tx ls
     where
       err = error "reapply TX with same state failed"
+
+instance ToCBOR (GenTx ShelleyBlock)
+instance FromCBOR (GenTx ShelleyBlock)
 
 {-------------------------------------------------------------------------------
   Pretty-printing

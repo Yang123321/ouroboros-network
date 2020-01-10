@@ -6,7 +6,9 @@
 module Ouroboros.Consensus.Ledger.Shelley.History
   ( LedgerViewHistory
   , Snapshot
+  , decode
   , empty
+  , encode
   , snapOld
   , trim
   , find
@@ -19,6 +21,8 @@ import           Cardano.Slotting.Slot (SlotNo (..), WithOrigin, fromWithOrigin,
                      genesisSlotNo)
 import           Cardano.Slotting.SlotBounded (Bounds (..), SlotBounded (..))
 import qualified Cardano.Slotting.SlotBounded as SB
+import           Codec.CBOR.Decoding (Decoder)
+import           Codec.CBOR.Encoding (Encoding)
 import           Data.Coerce (coerce)
 import           Data.Sequence.Strict (StrictSeq ((:<|), (:|>), Empty))
 import qualified Data.Sequence.Strict as Seq
@@ -92,3 +96,13 @@ find slot (LedgerViewHistory history) =
   where
     slot' :: SlotNo
     slot' = fromWithOrigin genesisSlotNo slot
+
+{-------------------------------------------------------------------------------
+  Serialisation
+-------------------------------------------------------------------------------}
+
+encode :: LedgerViewHistory -> Encoding
+encode = undefined -- TODO
+
+decode :: Decoder s LedgerViewHistory
+decode = undefined -- TODO
