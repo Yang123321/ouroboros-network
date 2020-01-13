@@ -308,7 +308,6 @@ forkBlockProduction maxBlockSizeOverride IS{..} BlockProduction{..} =
     void $ onSlotChange btime $ \currentSlot -> do
       varDRG <- newTVarM =<< (PRNG <$> produceDRG)
 
-      trace $ TraceForgeAboutToLead currentSlot
 
       -- Get current ledger
       --
@@ -345,6 +344,7 @@ forkBlockProduction maxBlockSizeOverride IS{..} BlockProduction{..} =
       case mIsLeader of
         Nothing    -> return ()
         Just proof -> do
+          trace $ TraceForgeAboutToLead currentSlot
           -- Get a snapshot of the mempool that is consistent with the ledger
           --
           -- NOTE: It is possible that due to adoption of new blocks the
