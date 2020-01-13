@@ -136,6 +136,7 @@
             (hsPkgs.random)
             (hsPkgs.serialise)
             (hsPkgs.tasty)
+            (hsPkgs.tasty-expected-failure)
             (hsPkgs.tasty-golden)
             (hsPkgs.tasty-hunit)
             (hsPkgs.tasty-quickcheck)

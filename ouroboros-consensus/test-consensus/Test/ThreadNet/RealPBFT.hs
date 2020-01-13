@@ -10,6 +10,7 @@ module Test.ThreadNet.RealPBFT (
     tests
   ) where
 
+import qualified Control.Exception as Exn
 import           Data.Coerce (coerce)
 import           Data.Foldable (find)
 import           Data.Map.Strict (Map)
@@ -19,10 +20,13 @@ import qualified Data.Set as Set
 import           Data.Time (Day (..), UTCTime (..))
 import           Data.Word (Word64)
 import           GHC.Stack (HasCallStack)
+import           System.IO (hPutStrLn, stderr)
+import           System.Timeout (timeout)
 
 import           Numeric.Search.Range (searchFromTo)
 import           Test.QuickCheck
 import           Test.Tasty
+import           Test.Tasty.ExpectedFailure (expectFail)
 import           Test.Tasty.QuickCheck
 
 import           Ouroboros.Network.Block (SlotNo (..))
@@ -171,7 +175,20 @@ tests = testGroup "RealPBFT" $
             , slotLengths  = defaultSlotLengths
             , initSeed     = seed
             }
-    , testProperty "simple convergence" $
+    , expectFail $
+      testProperty "diverges (due to Issue 1435)" $
+      let ncn = NumCoreNodes 4 in
+      prop_simple_real_pbft_convergence ProduceEBBs (SecurityParam 5) TestConfig
+        { numCoreNodes = ncn
+        , numSlots     = NumSlots 58
+        , nodeJoinPlan = NodeJoinPlan $ Map.fromList [(CoreNodeId 0,SlotNo 3),(CoreNodeId 1,SlotNo 3),(CoreNodeId 2,SlotNo 5),(CoreNodeId 3,SlotNo 57)]
+        , nodeRestarts = noRestarts
+        , nodeTopology = meshNodeTopology ncn
+        , slotLengths  = defaultSlotLengths
+        , initSeed     = Seed (11044330969750026700,14522662956180538128,9026549867550077426,3049168255170604478,643621447671665184)
+        }
+    , localOption (QuickCheckMaxRatio 500) $
+      testProperty "simple convergence" $
           \produceEBBs ->
           forAll (SecurityParam <$> elements [5, 10])
             $ \k ->
@@ -276,15 +293,18 @@ prop_simple_real_pbft_convergence :: ProduceEBBs
                                   -> TestConfig
                                   -> Property
 prop_simple_real_pbft_convergence produceEBBs k
-  testConfig@TestConfig{numCoreNodes, numSlots, nodeRestarts, initSeed} =
-    tabulate "produce EBBs" [show produceEBBs] $
-    prop_general k
-        testConfig
-        (Just $ roundRobinLeaderSchedule numCoreNodes numSlots)
-        (expectedBlockRejection k numCoreNodes nodeRestarts)
-        testOutput .&&.
-    not (all Chain.null finalChains) .&&.
-    conjoin (map (hasAllEBBs k numSlots produceEBBs) finalChains)
+  testConfig@TestConfig{numCoreNodes, numSlots, nodeRestarts, initSeed} = ioProperty $ do
+    timeout (10 * 1000 * 1000) (Exn.evaluate testOutput) >>= \case
+      Nothing -> do hPutStrLn stderr "TIMEOUT"; pure discard
+      Just _ -> pure $
+        tabulate "produce EBBs" [show produceEBBs] $
+        prop_general k
+            testConfig
+            (Just $ roundRobinLeaderSchedule numCoreNodes numSlots)
+            (expectedBlockRejection k numCoreNodes nodeRestarts)
+            testOutput .&&.
+        not (all Chain.null finalChains) .&&.
+        conjoin (map (hasAllEBBs k numSlots produceEBBs) finalChains)
   where
     testOutput =
         runTestNetwork testConfig TestConfigBlock
