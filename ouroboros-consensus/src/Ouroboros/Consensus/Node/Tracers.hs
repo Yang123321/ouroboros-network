@@ -29,7 +29,7 @@ import           Ouroboros.Consensus.ChainSyncServer (TraceChainSyncServerEvent)
 import           Ouroboros.Consensus.Ledger.Abstract (AnachronyFailure,
                      ProtocolLedgerView)
 import           Ouroboros.Consensus.Mempool.API (ApplyTxErr, GenTx, GenTxId,
-                     TraceEventMempool, MempoolSize)
+                     MempoolSize, TraceEventMempool)
 import           Ouroboros.Consensus.TxSubmission
                      (TraceLocalTxSubmissionServerEvent (..))
 
