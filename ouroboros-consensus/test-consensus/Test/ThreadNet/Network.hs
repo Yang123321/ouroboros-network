@@ -439,7 +439,7 @@ runThreadNetwork ThreadNetworkArgs
       let nodeArgs = NodeArgs
             { tracers             = nullDebugTracers
                 { forgeTracer       = Tracer $ \case
-                    TraceForgeAboutToLead s -> do
+                    TraceForgeSlotOnset s -> do
                       atomically $ do
                         lim <- readTVar nextEbbSlotVar
                         check $ s < lim

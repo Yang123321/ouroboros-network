@@ -106,6 +106,13 @@ data TraceForgeEvent blk tx
   -- current DB.
   = TraceForgeAboutToLead SlotNo
 
+  -- | The node will soon forge, but we still need to read from the ChainDB.
+  -- The event needs to happen before the thread reads the ChainDB.
+  -- Specifically, in the ThreadNet tests, the __tracer itself__ actually
+  -- forges and adds an EBB before returning, which must be able to
+  -- affect (extLedger, (prevPoint, prevNo)).
+  | TraceForgeSlotOnset SlotNo
+
   -- | The forged block and at which slot it was forged with the information of
   -- the mempool size at the moment before the forge event.
   | TraceForgeEvent SlotNo blk !MempoolSize

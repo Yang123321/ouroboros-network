@@ -308,7 +308,7 @@ forkBlockProduction maxBlockSizeOverride IS{..} BlockProduction{..} =
     void $ onSlotChange btime $ \currentSlot -> do
       varDRG <- newTVarM =<< (PRNG <$> produceDRG)
 
-
+      trace $ TraceForgeSlotOnset currentSlot
       -- Get current ledger
       --
       -- NOTE: This is still wrong. If we detect in 'prevPointAndBlockNo'
