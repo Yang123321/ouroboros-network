@@ -53,12 +53,11 @@ import           Ouroboros.Consensus.BlockchainTime
 import           Ouroboros.Consensus.ChainSyncClient
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
-import           Ouroboros.Consensus.Mempool
+import           Ouroboros.Consensus.Mempool as Mempool
 import           Ouroboros.Consensus.Mempool.TxSeq (TicketNo)
 import           Ouroboros.Consensus.Node.Run (RunNode (..))
 import           Ouroboros.Consensus.Node.Tracers
 import           Ouroboros.Consensus.Protocol.Abstract
-import           Ouroboros.Consensus.Util (whenJust)
 import           Ouroboros.Consensus.Util.AnchoredFragment
 import           Ouroboros.Consensus.Util.EarlyExit
 import           Ouroboros.Consensus.Util.IOLike
@@ -94,6 +93,9 @@ data NodeKernel m peer blk = NodeKernel {
 
       -- | The node's tracers
     , getTracers             :: Tracers m peer blk
+
+      -- | A handle to kill the kernel's background threads.
+    , stopBGThreads          :: m ()
     }
 
 -- | Monad that we run protocol specific functions in
@@ -173,14 +175,15 @@ initNodeKernel args@NodeArgs { registry, cfg, tracers, maxBlockSize
 
     st <- initInternalState args
 
-    whenJust blockProduction $ forkBlockProduction maxBlockSize st
+    mbStopBlockProduction <- forM blockProduction $ do
+      forkBlockProduction maxBlockSize st
 
     let IS { blockFetchInterface, fetchClientRegistry, varCandidates,
              mempool } = st
 
     -- Run the block fetch logic in the background. This will call
     -- 'addFetchedBlock' whenever a new block is downloaded.
-    void $ forkLinkedThread registry $ blockFetchLogic
+    hBFLogic <- forkLinkedThread registry $ blockFetchLogic
         (blockFetchDecisionTracer tracers)
         (blockFetchClientTracer   tracers)
         blockFetchInterface
@@ -193,6 +196,12 @@ initNodeKernel args@NodeArgs { registry, cfg, tracers, maxBlockSize
       , getFetchClientRegistry = fetchClientRegistry
       , getNodeCandidates      = varCandidates
       , getTracers             = tracers
+      , stopBGThreads          = do
+          -- block production depends on mempool, so stop it first
+          sequence_ mbStopBlockProduction
+
+          Mempool.stopBGThreads mempool
+          cancelThread hBFLogic
       }
 
 {-------------------------------------------------------------------------------
@@ -307,9 +316,9 @@ forkBlockProduction
     => MaxBlockSizeOverride
     -> InternalState m peer blk
     -> BlockProduction m blk
-    -> m ()
+    -> m (m ())
 forkBlockProduction maxBlockSizeOverride IS{..} BlockProduction{..} =
-    void $ onSlotChange btime $ \currentSlot -> do
+    onSlotChange btime $ \currentSlot -> do
       varDRG <- newTVarM =<< (PRNG <$> produceDRG)
       withEarlyExit_ $ go currentSlot varDRG
   where
